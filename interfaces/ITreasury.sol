@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >= 0.5.0;
+pragma solidity 0.5.6;
 
 interface ITreasury {
     function balanceOf(address _director) external view returns (uint256);
@@ -10,7 +10,7 @@ interface ITreasury {
 
     function setLockUp(uint256 _withdrawLockupRounds) external;
 
-    function setAdditionalReward(uint256 _additionalPercentage) public;
+    function setAdditionalReward(uint256 _additionalPercentage) external;
 
     function stake(uint256 _amount) external;
 
@@ -20,5 +20,7 @@ interface ITreasury {
 
     function exit() external;
 
-    function claimReward() external;
+    function claimReward_To_Wallet() external;
+
+    function claimReward_To_Staking() external;
 }

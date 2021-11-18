@@ -14,8 +14,8 @@ contract PRoA is kERC20, Operator {
     uint256 public constant INITIAL_SETTING = 5001 ether; // 1 for staking initializing
     uint256 public constant DEV_FUND_POOL_ALLOCATION = 22000000 ether;
 
-    uint256 public constant DURATION = 1460 days;
-    uint256 public startTime = 1;
+    uint256 public constant DURATION = 1095 days;
+    uint256 public startTime = 1; // Need to be fixed
     uint256 public endTime = startTime + DURATION;
 
     uint256 public devFundRewardRatio = DEV_FUND_POOL_ALLOCATION.div(DURATION);

@@ -48,17 +48,15 @@ contract Treasury is proaWrapper, ContractGuard, Operator {
     bool public initialized;
     
     uint256 public proaReward = 35000 ether;
-    uint256 public proaRewardPerSec = proaReward.div(totalSupply()).div(24*60*60);
     uint256 public withdrawLockup = 7 days;
     uint256 public updateInterval;
-    uint256 public additionalPercentage = 15; //0.15%
+    uint256 public additionalPercentage = 500; //5%
     address public treasury;
     
     /***************** STRUCTURE *****************/
     struct BoardData {
         uint256 LatestStaking;
         uint256 rewardEarned;
-        uint256 firstStaking = 0;
         uint256 additionalReward; //100 for 1%, 1000 for 10%
         uint256 LatestRewardUpdate;
     }
@@ -79,12 +77,8 @@ contract Treasury is proaWrapper, ContractGuard, Operator {
 
     modifier updateReward(address user) {
         require(user != address(0), "Zero account");
-        if (balanceOf(user) == 0) { //For initial users
-            uesrs[user].LatestRewardUpdate = block.timestamp;
-        }
         BoardData memory data = users[user];
         data.rewardEarned = updateAddReward(user).add(data.rewardEarned);
-        data.LatestRewardUpdate = block.timestamp;
         users[user] = data;
         _;
     }
@@ -94,10 +88,10 @@ contract Treasury is proaWrapper, ContractGuard, Operator {
         withdrawLockup = 7 days;
     }
 
-    function initalize(IERC20 _proa, address _treasury) public onlyOperator {
+    function initalize(IERC20 _proa) public onlyOperator {
         require (initialized == false, "Already initialized");
-        treasury = _treasury;
         proa = _proa;
+
         initialized = true;
 
         emit Initialized(msg.sender, block.timestamp, block.number);
@@ -135,22 +129,25 @@ contract Treasury is proaWrapper, ContractGuard, Operator {
     }
 
     /***************** MUTABLE FUNCTIONS *****************/
-    function _stake(uint256 amount) public onlyOneBlock updateReward(msg.sender){ 
+    function _stake(uint256 amount) public onlyOneBlock{ 
         require(amount>0, "Cannot stake 0");
-        //Store first staking moment for additional reward
-        if (users[msg.sender].firstStaking == 0){
-            uers[msg.sender].firstStaking = block.timestamp;
+        if (balanceOf(msg.sender) == 0) {
+            users[msg.sender].LatestRewardUpdate = block.timestamp;
+        }
+        else {
+            if (amount > balanceOf(msg.sender){
+                users[msg.sender].LatestStaking = block.timestamp;
+            }
         }
         proaWrapper.stake(amount);
-        users[msg.sender].LatestStaking = block.timestamp;
         emit Staked(msg.sender, amount);
     }
 
     function _withdraw(uint256 amount) public onlyOneBlock userExists updateReward(msg.sender){
         require (amount > 0, "Cannot withdraw 0");
         require (canWithdraw(msg.sender), "Wait for 7 days");
-        users[msg.sender].firstStaking = 0;
-        claimReward();
+        users[msg.sender].LatestStaking = block.timestamp;
+        claimReward_To_Wallet();
         proaWrapper.withdraw(amount);
         emit Withdrawn(msg.sender, amount);
     }
@@ -159,21 +156,45 @@ contract Treasury is proaWrapper, ContractGuard, Operator {
         _withdraw(balanceOf(msg.sender));
     }
 
-    function claimReward() public updateReward(msg.sender) {
+    function claimReward_To_Wallet() public onlyOneBlock updateReward(msg.sender) {
         require(users[msg.sender].rewardEarned > 0, "Cannot get 0 reward");
         uint256 reward = users[msg.sender].rewardEarned;
         users[msg.sender].rewardEarned = 0;
+        users[msg.sender].LatestStaking = block.timestamp;
         proa.safeTransfer(msg.sender, reward);
         emit RewardPaid(msg.sender, reward);
+    }
+
+    function claimReward_To_Staking() public onlyOneBlock userExists updateReward(msg.sender) {
+        require(users[msg.sender].rewardEarned > 0, "Cannot get 0 reward");
+        uint256 reward = users[msg.sender].rewardEarned;
+        users[msg.sender].rewardEarned = 0;
+        proaWrapper.stake(reward);
+        emit RewardPaid(msg.sender, reward)
+
     }
 
     function updateAddReward(address user) public returns (uint256) {
         uint256 _now = block.timestamp;
         updateInterval = _now - users[user].LatestRewardUpdate;
-        if (_now - users[user].firstStaking > 7 days && _now - users[user].firstStaking < 60 days) {
-            users[user].additionalReward = (_now - users[user].firstStaking).div((1 days)).mul(additionalPercentage); //Max 9% additional reward
+        if (updateInterval < 30 days) {
+            if (updateInterval / 7 days == 0) {
+                users[user].additionalReward = 0;
+            }
+            else if (updateInterval / 7 days == 1) {
+                users[user].additionalReward = 500;
+            }
+            else if (updateInterval / 7 days == 2) {
+                users[user].additionalReward = 1000;
+            }
+            else if (updateInterval / 7 days == 3) {
+                users[user].additionalReward = 2000;
+            }
+            else if (updateInterval / 7 days == 4) {
+                users[user].additionalReward = 4500;
+            }
         }
-        return update_RPS().mul(updateInterval).mul(balanceOf(user)).mul(users[user].additionalReward).div(10000); 
+        return update_RPS().mul(updateInterval).mul(balanceOf(user)).mul(1 + (users[user].additionalReward).div(10000)); 
     }
 
     function displayReward(address user) public updateReward(msg.sender) returns (uint256) {
