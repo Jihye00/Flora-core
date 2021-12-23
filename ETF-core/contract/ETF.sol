@@ -95,7 +95,9 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
 
     function deposit(uint256 _amount) external virtual override nonReentrant {
         require (_amount > 0, "Cannot deposit 0");
-        uint256 _depositA, _depositB, _depositC;
+        uint256 _depositA;
+        uint256 _depositB;
+        uint256 _depositC;
 
         uint256 before = IERC20(usdt).balanceOf(address(this));
 
@@ -105,23 +107,23 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
         uint256 forB = _amount.mul(distributionB).div(20000);
         uint256 forC = _amount.mul(distributionC).div(20000);
 
-        _depositA, _depositB, _depositC = _swap(forA, forB, forC);
+        (_depositA, _depositB, _depositC) = _swap(forA, forB, forC);
 
         _addliquidity(forA, forB, forC, _depositA, _depositB, _depositC);
 
         users[msg.sender].depositTime = block.timestamp;
-        uint256 after = IERC20(usdt).balanceOf(address(this)); 
+        uint256 _after = IERC20(usdt).balanceOf(address(this)); 
 
-        if ((after - before) < _amount) {
-            uint256 give = _amount - (after - before);
-            IERC20(usdt).transfer(msg.sender, give));
+        if ((_after - before) < _amount) {
+            uint256 give = _amount - (_after - before);
+            IERC20(usdt).transfer(msg.sender, give);
         }
         users[msg.sender].amount = _amount.sub(give);
         totalAmount += _amount.sub(give);
     }
 
     function deposit_rebalance(uint256 _amount) internal {
-        uint256 _depositA, _depositB, _depositC;
+        uint256 (_depositA, _depositB, _depositC);
 
         uint256 before = IERC20(usdt).balanceOf(address(this));
 
@@ -129,13 +131,13 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
         uint256 forB = _amount.mul(distributionB).div(20000);
         uint256 forC = _amount.mul(distributionC).div(20000);
 
-        _depositA, _depositB, _depositC = _swap(forA, forB, forC);
+        (_depositA, _depositB, _depositC) = _swap(forA, forB, forC);
 
         _addliquidity(forA, forB, forC, _depositA, _depositB, _depositC);
 
-        uint256 after = IERC20(usdt).balanceOf(address(this));
+        uint256 _after = IERC20(usdt).balanceOf(address(this));
 
-        additionalProfit += (before - after);
+        additionalProfit += (before - _after);
     }
 
     function withdraw(uint256 _amount) external virtual override nonReentrant {
@@ -236,7 +238,7 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
         (uint256 afterB, uint256 after_B) = IKSLP(LP_B).getCurrentPool();
         (uint256 afterB, uint256 after_B) = IKSLP(LP_B).getCurrentPool();
 
-        return (afterA - beforeA), (afterB - beforeB), (afterC - beforeC);
+        return ((afterA - beforeA), (afterB - beforeB), (afterC - beforeC));
     }
 
     function _addliquidity(uint256 _forA, uint256 _forB, uint256 _forC, uint256 _amountA, uint256 _amountB, uint256 _amountC) internal {

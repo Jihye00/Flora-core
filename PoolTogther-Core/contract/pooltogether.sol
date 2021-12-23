@@ -182,18 +182,18 @@ contract poolTogether is IPoolTogether, BaseTrust, Ownable, ERC20, ReentrancyGua
         isDraw = true;
     }
 
-    function ticketCount() public pure return (uint256) onlyOwner {
+    function ticketCount() public pure onlyOwner returns (uint256){
         return pool[currentId].totalTicket;
     }
 
-    function currentIdCount() public pure return (uint256) onlyOwner {
+    function currentIdCount() public pure onlyOwner returns (uint256) {
         return currentId;
     }
 
 
     ///////////////// EMERGENCY WITHDRAW /////////////////
     function emergencyCall() public onlyOwner {
-        IKSLP(kslp).removeLiquidity(IERC20(kslp).balanceOf(address(this));
+        IKSLP(kslp).removeLiquidity(IERC20(kslp).balanceOf(address(this)));
     }
 
 }

@@ -145,7 +145,7 @@ contract Treasury is ITreasury, ContractGuard, ERC20, Ownable{
         uint256 reward = users[msg.sender].rewardEarned;
         users[msg.sender].rewardEarned = 0;
         stake(reward);
-        emit RewardPaid(msg.sender, reward)
+        emit RewardPaid(msg.sender, reward);
 
     }
     

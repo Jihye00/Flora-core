@@ -171,7 +171,7 @@ contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
 
         for (uint256 i = 0; i < _ticketNumbers.length; i++) {
             uint32 thisTicketNumber = _ticketNumbers[i];
-            thisTicketNumber = thisTicketNumber 
+            thisTicketNumber = thisTicketNumber; 
             require((thisTicketNumber >= 100000) && (thisTicketNumber <= 177777), "Outside range");
 
             _numberTicketsPerLotteryId[_lotteryId][111111 + uint32(thisTicketNumber / 1)]++; //1st place

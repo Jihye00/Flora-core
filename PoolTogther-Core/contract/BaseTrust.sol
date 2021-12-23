@@ -7,7 +7,7 @@ import "./utils/SafeMath.sol";
 import "./utils/ReentrancyGuard.sol";
 import "./utils/Address.sol";
 import "./utils/Ownable.sol";
-import "./ITrust.sol";
+import "./interfaces/ITrust.sol";
 import "./interfaces/IKSLP.sol";
 import "./interfaces/IKSP.sol";
 
