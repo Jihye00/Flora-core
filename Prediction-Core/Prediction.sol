@@ -56,8 +56,8 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         uint256 startTimestamp;
         uint256 lockTimestamp;
         uint256 closeTimestamp;
-        int256 lockPrice;
-        int256 closePrice;
+        uint256 lockPrice;
+        uint256 closePrice;
         uint256 lockOracleId;
         uint256 closeOracleId;
         uint256 totalAmount;
@@ -71,6 +71,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     struct BetInfo {
         Position position;
         uint256 amount;
+        uint256 freezer;
         bool claimed; // default false
     }
 
@@ -170,12 +171,15 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Bet bear position
      * @param epoch: epoch
      */
-    function betBear(uint256 epoch, uint256 amount) external virtual override whenNotPaused nonReentrant notContract {
+    function betBear(uint256 epoch, uint256 amount, uint256 _freezer) external virtual override whenNotPaused nonReentrant notContract {
         require(epoch == currentEpoch, "Bet is too early/late");
         require(_bettable(epoch), "Round not bettable");
         require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
         require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
 
+        if (_freezer != 0) {
+            ledger[epoch][msg.sender].freezer = _freezer;
+        }
         // Update round data
         acaToken.safeTransferFrom(address(msg.sender), address(this), amount);
         Round storage round = rounds[epoch];
@@ -195,13 +199,16 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Bet bull position
      * @param epoch: epoch
      */
-    function betBull(uint256 epoch, uint256 amount) external virtual override whenNotPaused nonReentrant notContract {
+    function betBull(uint256 epoch, uint256 amount, uint256 _freezer) external virtual override whenNotPaused nonReentrant notContract {
         require(epoch == currentEpoch, "Bet is too early/late");
         require(_bettable(epoch), "Round not bettable");
         require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
         require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
 
         // Update round data
+        if (_freezer != 0) {
+            ledger[epoch][msg.sender].freezer = _freezer;
+        }
         acaToken.safeTransferFrom(address(msg.sender), address(this), amount);
         Round storage round = rounds[epoch];
         round.totalAmount = round.totalAmount + amount;
@@ -222,33 +229,42 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      */
     function claim(uint256[] calldata epochs) external virtual override nonReentrant notContract {
         uint256 reward; // Initializes reward
-
+        uint256 _seriesWin = 0;
         for (uint256 i = 0; i < epochs.length; i++) {
             require(rounds[epochs[i]].startTimestamp != 0, "Round has not started");
             require(block.timestamp > rounds[epochs[i]].closeTimestamp, "Round has not ended");
 
             uint256 addedReward = 0;
-            uint256 _seriesWin = 0;
-
+            
             // Round valid, claim rewards
             if (rounds[epochs[i]].oracleCalled) {
-                require(claimable(epochs[i], msg.sender), "Not eligible for claim");
-                Round memory round = rounds[epochs[i]];
-                addedReward = (ledger[epochs[i]][msg.sender].amount * round.rewardAmount) / round.rewardBaseCalAmount;
-                userLeader[msg.sender].wintime += 1;
+                if (claimable(epochs[i], msg.sender)){ //Win game
+                    Round memory round = rounds[epochs[i]];
+                    addedReward = (ledger[epochs[i]][msg.sender].amount * round.rewardAmount) / round.rewardBaseCalAmount;
+                    userLeader[msg.sender].wintime += 1;
 
-                if (i != 0 && !claimable(epoch[i-1], msg.sender)) {
-                    if (userLeader[msg.sender].seriesWin < _seriesWin) {
-                        userLeader[msg.senmder].seriesWin = _seriesWin;
-                    }
-                    _seriesWin = 1;
-                }
-                else {
-                    if (i == 0 && userLeader[msg.sender].prevWin == true){
+                    if (i == 0 && userLeader[msg.sender].prevWin == true)){
                         _seriesWin = userLeader[msg.sender].seriesWin + 1;
                     }
                     else {
                         _seriesWin += 1;
+                    }
+                }
+                
+                else { //Lose game
+                    if (ledger[epochs[i]][msg.sender].freezer == 0){ //No freezer
+                        if (userLeader[msg.sender].seriesWin < _seriesWin) {
+                            userLeader[msg.senmder].seriesWin = _seriesWin;
+                        }
+                        _seriesWin = 0;
+                    }
+                    else { //freezer is ON
+                        if (i == 0 && userLeader[msg.sender].prevWin == true){
+                        _seriesWin = userLeader[msg.sender].seriesWin + 1;
+                        }
+                        else {
+                        _seriesWin += 1;
+                        }
                     }
                 }
             }
@@ -256,6 +272,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
             else {
                 require(refundable(epochs[i], msg.sender), "Not eligible for refund");
                 addedReward = ledger[epochs[i]][msg.sender].amount;
+                addedReward += ledger[epochs[i]][msg.sender].freezer;
                 refundCheck = true;
             }
 
@@ -273,17 +290,18 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         }
 
         if (reward > 0) {
-            if (checkSpecialRound() || refundCheck){
+            if (checkSpecialRound()){
                 acaToken.safeTransfer(msg.sender, reward);
                 refundCheck = false;
             }
             else{
-                acaToken.safeTransfer(msg.sender, reward*99/100); 
-                PendingAmountSpecial += reward / 100; //for special round per day
+                acaToken.safeTransfer(msg.sender, reward.mul(99).div(100)); 
+                PendingAmountSpecial += reward.div(100); //for special round per day
+                refundCheck = false;
             }
-            if (userLeader[msg.sender].seriesWin < _seriesWin) {
+        }
+        if (userLeader[msg.sender].seriesWin < _seriesWin) {
                 userLeader[msg.sender].seriesWin = _seriesWin;
-            }
         }
     }
 
@@ -719,7 +737,6 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     }
 
 
-    
     /**
      * @notice Returns true if `account` is a contract.
      * @param account: account address

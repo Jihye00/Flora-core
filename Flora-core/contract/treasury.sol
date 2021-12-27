@@ -17,14 +17,16 @@ contract Treasury is ITreasury, ContractGuard, ERC20, Ownable{
     using Address for address;
 
     bool public initialized;
-    IERC20 public _aca;
+    IERC20 public aca;
     uint256 private _totalSupply = 0;
+    uint256 public totalLending = 0;
     mapping(address => uint256) public _balances;
 
     uint256 public acaReward = 16800 ether;
     uint256 public withdrawLockup = 7 days;
     uint256 public updateInterval;
     uint256 public additionalPercentage = 500; //5%
+    uint256 public IPA = 5; //0.05%
     address public treasury;
     
     /***************** STRUCTURE *****************/
@@ -33,6 +35,9 @@ contract Treasury is ITreasury, ContractGuard, ERC20, Ownable{
         uint256 rewardEarned;
         uint256 additionalReward; //100 for 1%, 1000 for 10%
         uint256 LatestRewardUpdate;
+        uint256 lendingAmount; //총 빌린 양
+        uint256 initLending; //Staking하면 lending amount가 0일때만 스테이킹하고 initLending 증가 가능
+        uint256 lendingStart;
     }
     mapping(address => BoardData) public users;
 
@@ -57,14 +62,23 @@ contract Treasury is ITreasury, ContractGuard, ERC20, Ownable{
         _;
     }
 
+    modifier updateInterest(address user) {
+        require (user != address(0), "Zero account");
+        lendingTime = block.timestamp - users[user].lendingStart;
+        //Adjust below ratio
+        uint256 interest = lendingTime.mul(users[user].lendingAmount).mul(IPA).div(10000).div (1 days);
+        users[user].lendingAmount += interest;
+        _;
+    }
+
     /***************** CONTRACTS *****************/
     constructor() public {
         withdrawLockup = 7 days;
     }
 
-    function initialize(IERC20 _aca) public onlyOwner {
+    function initialize(address _aca) public onlyOwner {
         require (initialized == false, "Already initialized");
-        aca = _aca;
+        aca = IERC20(_aca);
 
         initialized = true;
 
@@ -115,14 +129,18 @@ contract Treasury is ITreasury, ContractGuard, ERC20, Ownable{
     function _stake(uint256 amount) virtual public onlyOneBlock{ 
         require(amount>0, "Cannot stake 0");
         users[msg.sender].LatestRewardUpdate = block.timestamp;
-        users[msg.sender].LatestStaking =block.timestamp;
+        users[msg.sender].LatestStaking = block.timestamp;
         stake(amount);
+        if (users[msg.sender].lendingAmount == 0){
+            users[msg.sender].initLending += amount.mul(70).div(100);
+        }
         emit Staked(msg.sender, amount);
     }
 
-    function _withdraw(uint256 amount) virtual public onlyOneBlock userExists updateReward(msg.sender){
+    function _withdraw(uint256 amount) virtual public onlyOneBlock userExists updateReward(msg.sender) updateInterest(msg.sender){
         require (amount <= balanceOf(msg.sender) && amount > 0, "Out of Range");
         require (canWithdraw(msg.sender), "Wait for at least 7 days");
+        require (users[msg.sender].lendingAmount == 0, "Repay all lending amount");
         users[msg.sender].LatestStaking = block.timestamp;
         users[user].LatestRewardUpdate =block.timestamp;
         claimReward_To_Wallet();
@@ -130,7 +148,7 @@ contract Treasury is ITreasury, ContractGuard, ERC20, Ownable{
         emit Withdrawn(msg.sender, amount);
     }
 
-    function claimReward_To_Wallet() virtual public onlyOneBlock updateReward(msg.sender) {
+    function claimReward_To_Wallet() virtual public onlyOneBlock updateReward(msg.sender) updateInterest(msg.sender){
         require(users[msg.sender].rewardEarned > 0, "Cannot get 0 reward");
         uint256 reward = users[msg.sender].rewardEarned;
         users[msg.sender].rewardEarned = 0;
@@ -140,13 +158,41 @@ contract Treasury is ITreasury, ContractGuard, ERC20, Ownable{
         emit RewardPaid(msg.sender, reward);
     }
 
-    function claimReward_To_Staking() virtual  public onlyOneBlock userExists updateReward(msg.sender) {
+    function claimReward_To_Staking() virtual  public onlyOneBlock userExists updateReward(msg.sender) updateInterest(msg.sender){
         require(users[msg.sender].rewardEarned > 0, "Cannot get 0 reward");
         uint256 reward = users[msg.sender].rewardEarned;
         users[msg.sender].rewardEarned = 0;
         stake(reward);
         emit RewardPaid(msg.sender, reward);
+    }
 
+    function lending(uint256 amount) external virtual onlyOneBlock userExists updateInterest(msg.sender){
+        require (amount > 0, "Cannot lend 0 amount");
+        require (users[msg.sender].lendingAmount + amount <= users[msg.sender].initLending, "Already lent");
+        totalLending += amount;
+        users[msg.sender].lendingAmount += amount;
+        users[msg.sender].lendingStart = block.timestamp;
+        aca.safeTransfer(msg.sender, amount);
+    }
+
+    function repay(uint256 amount) external virtual onlyOneBlock userExists updateInterest(msg.sender) {
+        require (amount > 0, "Cannot repay 0 amount");
+        require (users[msg.sender].lendingAmount >= amount, "More than you lent");
+        totalLending -= amount;
+        users[msg.sender].lendingAmount -= amount;
+        aca.safeTransfer(address(this), amount);
+    }
+
+    function giveUp() external virtual onlyOneBlock userExists  {
+        aca.burn(balanceOf(msg.sender));
+        balanceOf(msg.sender) = 0;
+        users[msg.sender].LatestStaking = 0;
+        users[msg.sender].rewardEarned = 0;
+        users[msg.sender].additionalReward = 0; 
+        users[msg.sender].LatestRewardUpdate = 0;
+        users[msg.sender].lendingAmount = 0; 
+        users[msg.sender].initLending = 0; 
+        users[msg.sender].lendingStart = 0;
     }
     
     function stake(uint256 amount) internal {
