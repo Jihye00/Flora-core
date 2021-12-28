@@ -1,6 +1,7 @@
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
 
-interface ITrust {
+interface IETF {
 
     function deposit(uint256 _amount) external;
 

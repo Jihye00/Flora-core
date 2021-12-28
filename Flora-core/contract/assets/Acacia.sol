@@ -1,10 +1,12 @@
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
 
 import "../utils/SafeMath.sol";
 import "../utils/Ownable.sol";
-import "./kERC20.sol";
+import "../utils/ERC20Burnable.sol";
+import "../utils/ERC20.sol";
 
-contract Acacia is kERC20, Operator {
+contract Acacia is ERC20Burnable, Ownable {
     using SafeMath for uint256;
 
     uint256 public constant TOTAL_SUPPLY = 330000000 ether;
@@ -23,7 +25,7 @@ contract Acacia is kERC20, Operator {
 
     bool public poolRewardIsMINTED = false;
 
-    constructor (uint256 _startTime) public kERC20("Acacia Token", "Acacia") {
+    constructor (uint256 _startTime) public ERC20("Acacia Token", "Acacia") {
         startTime = _startTime;
         devFundLastClaimed = startTime;
         endTime = startTime + DURATION;
@@ -67,11 +69,11 @@ contract Acacia is kERC20, Operator {
         _mint(_farmingFund, POOL_REWARD_ALLOCATION);
     }
     
-    function burn(uint256 amount) public onlyOwner {
+    function burn(uint256 amount) public override onlyOwner {
         super.burn(amount);
     }
 
-    function burnFrom(address account, uint256 amount) public onlyOwner {
+    function burnFrom(address account, uint256 amount) public override onlyOwner {
         super.burnFrom(account, amount);
     }
 }

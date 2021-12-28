@@ -1,6 +1,7 @@
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
 
-interface IPriLoLottery {
+interface IFloraLottery {
     /**
      * @notice Buy tickets for the current lottery
      * @param _lotteryId: lotteryId
@@ -65,5 +66,5 @@ interface IPriLoLottery {
     /**
      * @notice View current lottery id
      */
-    function viewCurrentLotteryId() external returns (uint256);
+    function viewCurrentLotteryId() external view returns (uint256);
 }

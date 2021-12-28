@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
-pragma abicoder v2;
+pragma experimental ABIEncoderV2;
 
 import "./utils/Address.sol";
 import "./utils/Ownable.sol";
@@ -12,6 +12,7 @@ import "./utils/SafeMath.sol";
 import "./utils/Address.sol";
 import "./utils/ERC20.sol";
 import "./utils/SafeERC20.sol";
+import "./interfaces/IASSET.sol";
 // import "./utils/oraclizeAPI_0.5.sol";
 
 
@@ -19,7 +20,7 @@ import "./utils/SafeERC20.sol";
  * @notice It is a contract for a lottery system using
  * randomness provided externally.
  */
-contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
+abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
     using Address for address;
@@ -46,6 +47,7 @@ contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
     uint256 public constant MAX_BANK_FEE = 3500; // 35%
 
     IERC20 public acaToken;
+    address public aca;
 
     enum Status {
         Pending,
@@ -123,12 +125,11 @@ contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
     /**
      * @notice Constructor
      * @param _acaTokenAddress: address of the Acacia token
-     * @param _randomGeneratorAddress: address of the RandomGenerator contract used to work with ChainLink VRF
      */
     constructor(address _acaTokenAddress) public {
         //oraclize_setProof(proofType_Ledger);
         acaToken = IERC20(_acaTokenAddress);
-
+        aca = _acaTokenAddress;
         // Initializes a mapping
         _bracketCalculator[0] = 11; //5th place
         _bracketCalculator[1] = 111;
@@ -146,6 +147,7 @@ contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
      */
     function buyTickets(uint256 _lotteryId, uint32[] calldata _ticketNumbers)
         virtual
+        override
         external
         notContract
         nonReentrant
@@ -171,7 +173,7 @@ contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
 
         for (uint256 i = 0; i < _ticketNumbers.length; i++) {
             uint32 thisTicketNumber = _ticketNumbers[i];
-            thisTicketNumber = thisTicketNumber; 
+            thisTicketNumber = thisTicketNumber;
             require((thisTicketNumber >= 100000) && (thisTicketNumber <= 177777), "Outside range");
 
             _numberTicketsPerLotteryId[_lotteryId][111111 + uint32(thisTicketNumber / 1)]++; //1st place
@@ -203,7 +205,7 @@ contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
         uint256 _lotteryId,
         uint256[] calldata _ticketIds,
         uint32[] calldata _brackets
-    ) external virtual notContract nonReentrant {
+    ) external virtual override notContract nonReentrant {
         require(_ticketIds.length == _brackets.length, "Not same length");
         require(_ticketIds.length != 0, "Length must be >0");
         require(_ticketIds.length <= maxNumberTicketsPerBuyOrClaim, "Too many tickets");
@@ -264,7 +266,6 @@ contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
     /**
      * @notice Draw the final number, calculate reward in Acacia per group, and make lottery claimable
      * @param _lotteryId: lottery id
-     * @param _autoInjection: reinjects funds into next lottery (vs. withdrawing all)
      * @dev Callable by operator
      */
     function drawFinalNumberAndMakeLotteryClaimable(uint256 _lotteryId, uint32 _randomNumber)
@@ -280,7 +281,7 @@ contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
 
         // Initialize a number to count addresses in the previous bracket
         uint256 numberAddressesInPreviousBracket = 0;
-
+        uint256 amountToBank = 0;
         // Calculate the amount to share post-bank fee
         uint256 amountToShareToWinners = (
             ((_lotteries[_lotteryId].amountCollectedInAcacia) * (10000 - _lotteries[_lotteryId].bankFee))
@@ -329,12 +330,12 @@ contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
         _lotteries[_lotteryId].status = Status.Claimable;
 
         pendingInjectionNextLottery = amountToWithdrawToBank.mul(3500).div(10000);
-        acaToken.burn(amountToWithdrawToBank.mul(6500).div(10000)); // We will burn amountToWithdrawToBank.
+        IAsset(aca).burn(amountToWithdrawToBank.mul(6500).div(10000)); // We will burn amountToWithdrawToBank.
 
-        amountToBank += (_lotteries[_lotteryId].amountCollectedInAcacia - amountToShareToWinners); //Add bank fee
+        amountToBank = amountToBank.add((_lotteries[_lotteryId].amountCollectedInAcacia - amountToShareToWinners)); //Add bank fee
 
         // Transfer Acacia to bank address
-        if (amountToBank) {
+        if (amountToBank != 0) {
             acaToken.safeTransfer(bankAddress, amountToBank);
         }
         emit LotteryNumberDrawn(currentLotteryId, finalNumber, numberAddressesInPreviousBracket);
@@ -605,9 +606,9 @@ contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
             length = numberTicketsBoughtAtLotteryId - _cursor;
         }
 
-        uint256[] memory lotteryTicketIds = uint256[](length); //Original : all 3 dynamic array is declared with new keyword
-        uint32[] memory ticketNumbers = uint32[](length);
-        bool[] memory ticketStatuses = bool[](length);
+        uint256[] memory lotteryTicketIds = new uint256[](length); //Original : all 3 dynamic array is declared with new keyword
+        uint32[] memory ticketNumbers = new uint32[](length);
+        bool[] memory ticketStatuses = new bool[](length);
 
         for (uint256 i = 0; i < length; i++) {
             lotteryTicketIds[i] = _userTicketIdsPerLotteryId[_user][_lotteryId][i + _cursor];

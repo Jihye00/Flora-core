@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
 
 import "./interfaces/IERC20.sol";
@@ -16,7 +17,7 @@ import "./interfaces/IETF.sol";
 //V1 : USDT 
 //V2 : NFT (Not only for pool)
 //V3 : DeFi
-contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
+abstract contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
 
     using SafeERC20 for IERC20;
     using Address for address;
@@ -67,7 +68,7 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
         distributionC = _distC;
         ksp = _ksp;
         rebalanceInterval = _rebalanceInterval;
-        klayKspPool = IKSP(ksp).tokenToPool(address(0), ksp);
+        klaykspPool = IKSP(ksp).tokenToPool(address(0), ksp);
 
         tokenA = IKSLP(LP_A).tokenA();
         tokenB = IKSLP(LP_B).tokenA();
@@ -88,9 +89,9 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
     function changeDistri(uint256 forA, uint256 forB, uint256 forC) public onlyOwner {
         require ((forA + forB + forC) == 10000, "Ratio isn't matched");
 
-        distrubutionA = forA;
-        distrubutionB = forB;
-        distrubutionC = forC;
+        distributionA = forA;
+        distributionB = forB;
+        distributionC = forC;
     }
 
     function deposit(uint256 _amount) external virtual override nonReentrant {
@@ -117,13 +118,20 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
         if ((_after - before) < _amount) {
             uint256 give = _amount - (_after - before);
             IERC20(usdt).transfer(msg.sender, give);
+            users[msg.sender].amount = _amount.sub(give);
+            totalAmount += _amount.sub(give);
         }
-        users[msg.sender].amount = _amount.sub(give);
-        totalAmount += _amount.sub(give);
+        else {
+            users[msg.sender].amount = _amount;
+            totalAmount += _amount;
+        }
+        
     }
 
     function deposit_rebalance(uint256 _amount) internal {
-        uint256 (_depositA, _depositB, _depositC);
+        uint256 _depositA;
+        uint256 _depositB;
+        uint256 _depositC;
 
         uint256 before = IERC20(usdt).balanceOf(address(this));
 
@@ -187,12 +195,13 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
 
     function swap_from_ksp(address token) internal {
         address[] memory path;
-        kspAmount = IERC20(ksp).balanceOf(msg.sender);
+        uint256 kspAmount = IERC20(ksp).balanceOf(msg.sender);
 
         if(_kspTokenPoolExist(token)){
             path = new address[](0);
             address kspTokenPool = IKSP(ksp).tokenToPool(ksp, token);
-            least = IKSLP(kspTokenPool).estimatePos(ksp, kspAmount).mul(9900).div(10000);
+            uint256 least = IKSLP(kspTokenPool).estimatePos(ksp, kspAmount).mul(9900).div(10000);
+            IKSP(ksp).exchangeKctPos(ksp, kspAmount, token, least, path);
         } else {
             path = new address[](1);
             path[0] = address(0);
@@ -200,10 +209,9 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
 
             uint256 estimatedKlay = IKSLP(klaykspPool).estimatePos(ksp, kspAmount);
             uint256 estimatedToken = IKSLP(klayTokenPool).estimatePos(address(0), estimatedKlay);
-            least = estimatedToken.mul(9900).div(10000);
+            uint256 least = estimatedToken.mul(9900).div(10000);
+            IKSP(ksp).exchangeKctPos(ksp, kspAmount, token, least, path);
         }
-        
-        IKSP(ksp).exchangeKctPos(ksp, kspAmount, token, least, path);
     }
 
     function swap_from_aca(address token, uint256 amount) internal {
@@ -213,13 +221,12 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
     }
 
     function _removeLiquidity(address lp, uint256 _amount) internal {
-        uint256 totalLP = _balanceKSLP();
-        require(_amount <= totalLP);
+        require(_amount <= totalAmount);
         
         IKSLP(lp).removeLiquidity(_amount);
     }
 
-     function _swap(uint256 forA, uint256 forB, uint256 forC) internal returns (uint256) {
+    function _swap(uint256 forA, uint256 forB, uint256 forC) internal returns (uint256, uint256, uint256) {
         address[] memory path; //No routing path
 
         (uint256 beforeA, uint256 before_A) = IKSLP(LP_A).getCurrentPool();
@@ -230,13 +237,13 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
         uint256 leastB = IKSLP(LP_B).estimatePos(usdt, forB).mul(9850).div(10000);
         uint256 leastC = IKSLP(LP_C).estimatePos(usdt, forC).mul(9850).div(10000);
 
-        exchangeKctPos(usdt, forA, tokenA, leastA, path);
-        exchangeKctPos(usdt, forB, tokenB, leastB, path);
-        exchangeKctPos(usdt, forC, tokenC, leastC, path);
+        IKSP(usdt).exchangeKctPos(usdt, forA, tokenA, leastA, path);
+        IKSP(usdt).exchangeKctPos(usdt, forB, tokenB, leastB, path);
+        IKSP(usdt).exchangeKctPos(usdt, forC, tokenC, leastC, path);
 
         (uint256 afterA, uint256 after_A) = IKSLP(LP_A).getCurrentPool();
         (uint256 afterB, uint256 after_B) = IKSLP(LP_B).getCurrentPool();
-        (uint256 afterB, uint256 after_B) = IKSLP(LP_B).getCurrentPool();
+        (uint256 afterC, uint256 after_C) = IKSLP(LP_C).getCurrentPool();
 
         return ((afterA - beforeA), (afterB - beforeB), (afterC - beforeC));
     }
@@ -258,7 +265,7 @@ contract ETF is IETF, Ownable, ERC20, ReentrancyGuard {
         }
     }
 
-    function userProfit() external view returns (uint256) {
+    function userProfit() external override view returns (uint256) {
         return additionalProfit.mul(users[msg.sender].amount).div(totalAmount);
     }
 

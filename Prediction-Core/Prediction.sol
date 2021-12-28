@@ -15,7 +15,7 @@ import "./interfaces/IPrediction.sol";
 /**
  * @title Flora.fianance Prediction Code
  */
-contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
+abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     using SafeERC20 for IERC20;
 
     bool public genesisLockOnce = false;
@@ -41,7 +41,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
 
     uint256 public constant MAX_BB_FEE = 900; // 10%. Usually 5%, which means MAX_BB_FEE == 500
 
-    int256 internal price_;
+    uint256 internal price_;
     bool internal updated;
 
     IERC20 public acaToken;
@@ -71,7 +71,6 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     struct BetInfo {
         Position position;
         uint256 amount;
-        uint256 freezer;
         bool claimed; // default false
     }
 
@@ -90,8 +89,8 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     event BetBear(address indexed sender, uint256 indexed epoch, uint256 amount);
     event BetBull(address indexed sender, uint256 indexed epoch, uint256 amount);
     event Claim(address indexed sender, uint256 indexed epoch, uint256 amount);
-    event EndRound(uint256 indexed epoch, uint256 indexed roundId, int256 price);
-    event LockRound(uint256 indexed epoch, uint256 indexed roundId, int256 price);
+    event EndRound(uint256 indexed epoch, uint256 indexed roundId, uint256 price);
+    event LockRound(uint256 indexed epoch, uint256 indexed roundId, uint256 price);
 
     event NewAdminAddress(address admin);
     event NewBufferAndIntervalSeconds(uint256 bufferSeconds, uint256 intervalSeconds);
@@ -100,7 +99,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     event NewOperatorAddress(address operator);
     event NewOracle(address oracle);
     event NewOracleUpdateAllowance(uint256 oracleUpdateAllowance);
-    event updatePrice(int256 price);
+    event updatePrice(uint256 price);
 
 
     event Pause(uint256 indexed epoch);
@@ -137,16 +136,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         _;
     }
 
-    /**
-     * @notice Constructor
-     * @param _adminAddress: admin address
-     * @param _operatorAddress: operator address
-     * @param _intervalSeconds: number of time within an interval
-     * @param _bufferSeconds: buffer of time for resolution of price
-     * @param _minBetAmount: minimum bet amounts (in wei)
-     * @param _oracleUpdateAllowance: oracle update allowance
-     * @param _BBFee: BB fee (1000 = 10%)
-     */
+   
     constructor (
         address _acaToken,
         address _adminAddress,
@@ -171,15 +161,12 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Bet bear position
      * @param epoch: epoch
      */
-    function betBear(uint256 epoch, uint256 amount, uint256 _freezer) external virtual override whenNotPaused nonReentrant notContract {
+    function betBear(uint256 epoch, uint256 amount) external virtual payable whenNotPaused nonReentrant notContract {
         require(epoch == currentEpoch, "Bet is too early/late");
         require(_bettable(epoch), "Round not bettable");
         require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
         require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
 
-        if (_freezer != 0) {
-            ledger[epoch][msg.sender].freezer = _freezer;
-        }
         // Update round data
         acaToken.safeTransferFrom(address(msg.sender), address(this), amount);
         Round storage round = rounds[epoch];
@@ -199,16 +186,13 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Bet bull position
      * @param epoch: epoch
      */
-    function betBull(uint256 epoch, uint256 amount, uint256 _freezer) external virtual override whenNotPaused nonReentrant notContract {
+    function betBull(uint256 epoch, uint256 amount) external virtual payable whenNotPaused nonReentrant notContract {
         require(epoch == currentEpoch, "Bet is too early/late");
         require(_bettable(epoch), "Round not bettable");
         require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
         require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
 
         // Update round data
-        if (_freezer != 0) {
-            ledger[epoch][msg.sender].freezer = _freezer;
-        }
         acaToken.safeTransferFrom(address(msg.sender), address(this), amount);
         Round storage round = rounds[epoch];
         round.totalAmount = round.totalAmount + amount;
@@ -227,44 +211,36 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Claim reward for an array of epochs
      * @param epochs: array of epochs
      */
-    function claim(uint256[] calldata epochs) external virtual override nonReentrant notContract {
+    function claim(uint256[] calldata epochs) external nonReentrant notContract {
         uint256 reward; // Initializes reward
         uint256 _seriesWin = 0;
+        uint256 order = 0;
         for (uint256 i = 0; i < epochs.length; i++) {
             require(rounds[epochs[i]].startTimestamp != 0, "Round has not started");
             require(block.timestamp > rounds[epochs[i]].closeTimestamp, "Round has not ended");
 
             uint256 addedReward = 0;
             
+
             // Round valid, claim rewards
             if (rounds[epochs[i]].oracleCalled) {
-                if (claimable(epochs[i], msg.sender)){ //Win game
-                    Round memory round = rounds[epochs[i]];
-                    addedReward = (ledger[epochs[i]][msg.sender].amount * round.rewardAmount) / round.rewardBaseCalAmount;
-                    userLeader[msg.sender].wintime += 1;
+                require(claimable(epochs[i], msg.sender), "Not eligible for claim");
+                Round memory round = rounds[epochs[i]];
+                addedReward = (ledger[epochs[i]][msg.sender].amount * round.rewardAmount) / round.rewardBaseCalAmount;
+                userLeader[msg.sender].wintime += 1;
 
-                    if (i == 0 && userLeader[msg.sender].prevWin == true)){
+                if (i != 0 && !claimable(epochs[i-1], msg.sender)) {
+                    if (userLeader[msg.sender].seriesWin < _seriesWin) {
+                        userLeader[msg.sender].seriesWin = _seriesWin;
+                    }
+                    _seriesWin = 1;
+                }
+                else {
+                    if (i == 0 && userLeader[msg.sender].prevWin == true){
                         _seriesWin = userLeader[msg.sender].seriesWin + 1;
                     }
                     else {
                         _seriesWin += 1;
-                    }
-                }
-                
-                else { //Lose game
-                    if (ledger[epochs[i]][msg.sender].freezer == 0){ //No freezer
-                        if (userLeader[msg.sender].seriesWin < _seriesWin) {
-                            userLeader[msg.senmder].seriesWin = _seriesWin;
-                        }
-                        _seriesWin = 0;
-                    }
-                    else { //freezer is ON
-                        if (i == 0 && userLeader[msg.sender].prevWin == true){
-                        _seriesWin = userLeader[msg.sender].seriesWin + 1;
-                        }
-                        else {
-                        _seriesWin += 1;
-                        }
                     }
                 }
             }
@@ -272,17 +248,16 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
             else {
                 require(refundable(epochs[i], msg.sender), "Not eligible for refund");
                 addedReward = ledger[epochs[i]][msg.sender].amount;
-                addedReward += ledger[epochs[i]][msg.sender].freezer;
                 refundCheck = true;
             }
 
             ledger[epochs[i]][msg.sender].claimed = true;
             reward += addedReward;
-
+            order = i;
             emit Claim(msg.sender, epochs[i], addedReward);
         }
 
-        if (claimable(epochs[i-1], msg.sender)) {
+        if (claimable(epochs[order-1], msg.sender)) {
             userLeader[msg.sender].prevWin = true;
         }
         else {
@@ -290,18 +265,17 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         }
 
         if (reward > 0) {
-            if (checkSpecialRound()){
+            if (checkSpecialRound() || refundCheck){
                 acaToken.safeTransfer(msg.sender, reward);
                 refundCheck = false;
             }
             else{
-                acaToken.safeTransfer(msg.sender, reward.mul(99).div(100)); 
-                PendingAmountSpecial += reward.div(100); //for special round per day
-                refundCheck = false;
+                acaToken.safeTransfer(msg.sender, reward*99/100); 
+                PendingAmountSpecial += reward / 100; //for special round per day
             }
-        }
-        if (userLeader[msg.sender].seriesWin < _seriesWin) {
+            if (userLeader[msg.sender].seriesWin < _seriesWin) {
                 userLeader[msg.sender].seriesWin = _seriesWin;
+            }
         }
     }
 
@@ -318,7 +292,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         require(checkPriceUpdated(), "Price of current round is not updated.");
 
         uint256 currentRoundId = currentEpoch; 
-        int256 currentPrice = price_;
+        uint256 currentPrice = price_;
 
         oracleLatestRoundId = currentRoundId;
 
@@ -342,7 +316,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         require(checkPriceUpdated(), "Price of current round is not updated.");
 
         uint256 currentRoundId = currentEpoch;
-        int256 currentPrice = price_;
+        uint256 currentPrice = price_;
 
         oracleLatestRoundId = uint256(currentRoundId);
 
@@ -369,7 +343,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice called by the admin to pause, triggers stopped state
      * @dev Callable by admin or operator
      */
-    function pause() external virtual whenNotPaused onlyAdminOrOperator {
+    function pause() external virtual override whenNotPaused onlyAdminOrOperator {
         _pause();
 
         emit Pause(currentEpoch);
@@ -379,7 +353,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Claim all rewards in BB
      * @dev Callable by admin
      */
-    function claimBB() external virtual nonReentrant onlyAdmin {
+    function claimBB() external virtual override nonReentrant onlyAdmin {
         uint256 currentBBAmount = BBAmount;
         BBAmount = 0;
         acaToken.safeTransfer(adminAddress, currentBBAmount); //adminAddress will be same as trasury address for easy calculations
@@ -391,7 +365,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice called by the admin to unpause, returns to normal state
      * Reset genesis state. Once paused, the rounds would need to be kickstarted by genesis
      */
-    function unpause() external virtual whenPaused onlyAdmin {
+    function unpause() external virtual override whenPaused onlyAdmin {
         genesisStartOnce = false;
         genesisLockOnce = false;
         _unpause();
@@ -405,6 +379,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      */
     function setBufferAndIntervalSeconds(uint256 _bufferSeconds, uint256 _intervalSeconds)
         virtual
+        override
         external
         whenPaused
         onlyAdmin
@@ -420,7 +395,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Set minBetAmount
      * @dev Callable by admin
      */
-    function setMinBetAmount(uint256 _minBetAmount) external virtual whenPaused onlyAdmin {
+    function setMinBetAmount(uint256 _minBetAmount) external virtual override whenPaused onlyAdmin {
         require(_minBetAmount != 0, "Must be superior to 0");
         minBetAmount = _minBetAmount;
 
@@ -431,7 +406,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Set operator address
      * @dev Callable by admin
      */
-    function setOperator(address _operatorAddress) external virtual onlyAdmin {
+    function setOperator(address _operatorAddress) external virtual override onlyAdmin {
         require(_operatorAddress != address(0), "Cannot be zero address");
         operatorAddress = _operatorAddress;
 
@@ -443,7 +418,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Set oracle update allowance
      * @dev Callable by admin
      */
-    function setOracleUpdateAllowance(uint256 _oracleUpdateAllowance) external virtual whenPaused onlyAdmin {
+    function setOracleUpdateAllowance(uint256 _oracleUpdateAllowance) external virtual override whenPaused onlyAdmin {
         oracleUpdateAllowance = _oracleUpdateAllowance;
 
         emit NewOracleUpdateAllowance(_oracleUpdateAllowance);
@@ -453,7 +428,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Set BB fee
      * @dev Callable by admin
      */
-    function setBBFee(uint256 _BBFee) external virtual whenPaused onlyAdmin {
+    function setBBFee(uint256 _BBFee) external virtual override whenPaused onlyAdmin {
         require(_BBFee <= MAX_BB_FEE, "BB fee too high");
         BBFee = _BBFee;
 
@@ -466,7 +441,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @param _amount: token amount
      * @dev Callable by owner
      */
-    function recoverToken(address _token, uint256 _amount) external virtual onlyOwner {
+    function recoverToken(address _token, uint256 _amount) external override virtual onlyOwner {
         IERC20(_token).safeTransfer(address(msg.sender), _amount);
 
         emit TokenRecovery(_token, _amount);
@@ -476,7 +451,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Set admin address
      * @dev Callable by owner
      */
-    function setAdmin(address _adminAddress) external virtual onlyOwner {
+    function setAdmin(address _adminAddress) external virtual override onlyOwner {
         require(_adminAddress != address(0), "Cannot be zero address");
         adminAddress = _adminAddress;
 
@@ -495,7 +470,6 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         uint256 size
     )
         external
-        virtual
         view
         returns (
             uint256[] memory,
@@ -524,7 +498,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Returns round epochs length
      * @param user: user address
      */
-    function getUserRoundsLength(address user) external virtual view returns (uint256) {
+    function getUserRoundsLength(address user) external view returns (uint256) {
         return userRounds[user].length;
     }
 
@@ -613,7 +587,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     function _safeEndRound(
         uint256 epoch,
         uint256 roundId,
-        int256 price
+        uint256 price
     ) internal {
         require(rounds[epoch].lockTimestamp != 0, "Can only end round after round has locked");
         require(block.timestamp >= rounds[epoch].closeTimestamp, "Can only end round after closeTimestamp");
@@ -638,7 +612,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     function _safeLockRound(
         uint256 epoch,
         uint256 roundId,
-        int256 price
+        uint256 price
     ) internal {
         require(rounds[epoch].startTimestamp != 0, "Can only lock round after round has started");
         require(block.timestamp >= rounds[epoch].lockTimestamp, "Can only lock round after lockTimestamp");
@@ -700,7 +674,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     }
 
 
-    function _getPriceFromOracle(uint256 _price) external virtual onlyOwner{
+    function _getPriceFromOracle(uint256 _price) external virtual override onlyOwner{
         Round memory round = rounds[currentEpoch];
         require (!updated, "Already updated");
         require(round.lockTimestamp - oracleUpdateAllowance < block.timestamp && block.timestamp < round.lockTimestamp + oracleUpdateAllowance, "Not in proper timing");
@@ -713,7 +687,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
             updated = false;
             return true;
         } else {
-            return 0;
+            return false;
         }
     }
     
@@ -728,7 +702,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
 
     //For leaderboard
 
-    function win_and_series_number() external view returns(uint256) {
+    function win_and_series_number() external view returns(uint256, uint256) {
         return (userLeader[msg.sender].wintime, userLeader[msg.sender].seriesWin);
     }
 
@@ -737,6 +711,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     }
 
 
+    
     /**
      * @notice Returns true if `account` is a contract.
      * @param account: account address

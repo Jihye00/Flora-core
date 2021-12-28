@@ -1,11 +1,10 @@
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
 
 interface IPrediction {
-    function betbear(uint256 epoch, uint256 amount, uint256 _freezer) external;
+    function betbear(uint256 epoch, uint256 amount) external;
 
-    function betbull(uint256 epoch, uint256 amount, uint256 _freezer) external;
-
-    function claim(uint256[] epochs) external;
+    function betbull(uint256 epoch, uint256 amount) external;
 
     function executeRound() external;
 
@@ -33,11 +32,6 @@ interface IPrediction {
 
     function setAdmin(address _adminAddress) external;
 
-    function getUserRounds(address user,uint256 cursor,uint256 size) external;
-
-    function getUserRoundsLength(address user) external;
-
     function _getPriceFromOracle(uint256 _price) external;    
-
 
 }

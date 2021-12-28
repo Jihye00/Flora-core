@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
 
-import '@openzeppelin/contracts/math/SafeMath.sol';
+import './SafeMath.sol';
 
-import '../owner/Operator.sol';
+import './Ownable.sol';
 
-contract Epoch is Operator {
+contract Epoch is Ownable {
     using SafeMath for uint256;
 
     uint256 private period;
@@ -37,7 +37,7 @@ contract Epoch is Operator {
     modifier checkEpoch {
         uint256 _nextEpochPoint = nextEpochPoint();
         if (now < _nextEpochPoint) {
-            require(msg.sender == operator(), 'Epoch: only operator allowed for pre-epoch');
+            require(msg.sender == owner(), "Epoch: only operator allowed for pre-epoch");
             _;
         } else {
             _;
@@ -75,12 +75,12 @@ contract Epoch is Operator {
 
     /* ========== GOVERNANCE ========== */
 
-    function setPeriod(uint256 _period) external onlyOperator {
+    function setPeriod(uint256 _period) external onlyOwner {
         require(_period >= 1 hours && _period <= 48 hours, '_period: out of range');
         period = _period;
     }
 
-    function setEpoch(uint256 _epoch) external onlyOperator {
+    function setEpoch(uint256 _epoch) external onlyOwner {
         epoch = _epoch;
     }
 }
