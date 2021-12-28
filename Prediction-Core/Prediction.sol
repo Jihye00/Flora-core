@@ -15,8 +15,9 @@ import "./interfaces/IPrediction.sol";
 /**
  * @title Flora.fianance Prediction Code
  */
-abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
+contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     using SafeERC20 for IERC20;
+    using SafeMath for uint256;
 
     bool public genesisLockOnce = false;
     bool public genesisStartOnce = false;
@@ -71,6 +72,7 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     struct BetInfo {
         Position position;
         uint256 amount;
+        uint256 freezer;
         bool claimed; // default false
     }
 
@@ -136,7 +138,14 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         _;
     }
 
-   
+    /**
+     * @notice Constructor
+     * @param _adminAddress: admin address
+     * @param _operatorAddress: operator address
+     * @param _intervalSeconds: number of time within an interval
+     * @param _minBetAmount: minimum bet amounts (in wei)
+     * @param _BBFee: BB fee (1000 = 10%)
+     */
     constructor (
         address _acaToken,
         address _adminAddress,
@@ -161,12 +170,15 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Bet bear position
      * @param epoch: epoch
      */
-    function betBear(uint256 epoch, uint256 amount) external virtual payable whenNotPaused nonReentrant notContract {
+    function betBear(uint256 epoch, uint256 amount, uint256 _freezer) external virtual override payable whenNotPaused nonReentrant notContract {
         require(epoch == currentEpoch, "Bet is too early/late");
         require(_bettable(epoch), "Round not bettable");
         require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
         require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
 
+        if (_freezer != 0) {
+            ledger[epoch][msg.sender].freezer = _freezer;
+        }
         // Update round data
         acaToken.safeTransferFrom(address(msg.sender), address(this), amount);
         Round storage round = rounds[epoch];
@@ -186,13 +198,16 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Bet bull position
      * @param epoch: epoch
      */
-    function betBull(uint256 epoch, uint256 amount) external virtual payable whenNotPaused nonReentrant notContract {
+    function betBull(uint256 epoch, uint256 amount, uint256 _freezer) external virtual override payable whenNotPaused nonReentrant notContract {
         require(epoch == currentEpoch, "Bet is too early/late");
         require(_bettable(epoch), "Round not bettable");
         require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
         require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
 
         // Update round data
+        if (_freezer != 0) {
+            ledger[epoch][msg.sender].freezer = _freezer;
+        }
         acaToken.safeTransferFrom(address(msg.sender), address(this), amount);
         Round storage round = rounds[epoch];
         round.totalAmount = round.totalAmount + amount;
@@ -221,26 +236,36 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
 
             uint256 addedReward = 0;
             
-
             // Round valid, claim rewards
             if (rounds[epochs[i]].oracleCalled) {
-                require(claimable(epochs[i], msg.sender), "Not eligible for claim");
-                Round memory round = rounds[epochs[i]];
-                addedReward = (ledger[epochs[i]][msg.sender].amount * round.rewardAmount) / round.rewardBaseCalAmount;
-                userLeader[msg.sender].wintime += 1;
-
-                if (i != 0 && !claimable(epochs[i-1], msg.sender)) {
-                    if (userLeader[msg.sender].seriesWin < _seriesWin) {
-                        userLeader[msg.sender].seriesWin = _seriesWin;
-                    }
-                    _seriesWin = 1;
-                }
-                else {
+                if (claimable(epochs[i], msg.sender)){ //Win game
+                    Round memory round = rounds[epochs[i]];
+                    addedReward = (ledger[epochs[i]][msg.sender].amount.mul(round.rewardAmount)).div(round.rewardBaseCalAmount);
+                    userLeader[msg.sender].wintime = userLeader[msg.sender].wintime + 1;
+                    
                     if (i == 0 && userLeader[msg.sender].prevWin == true){
                         _seriesWin = userLeader[msg.sender].seriesWin + 1;
                     }
                     else {
                         _seriesWin += 1;
+                    }
+                    
+                }
+                
+                else { //Lose game
+                    if (ledger[epochs[i]][msg.sender].freezer == 0){ //No freezer
+                        if (userLeader[msg.sender].seriesWin < _seriesWin) {
+                            userLeader[msg.sender].seriesWin = _seriesWin;
+                        }
+                        _seriesWin = 0;
+                    }
+                    else { //freezer is ON
+                        if (i == 0 && userLeader[msg.sender].prevWin == true){
+                            _seriesWin = userLeader[msg.sender].seriesWin + 1;
+                        }
+                        else {
+                            _seriesWin += 1;
+                        }
                     }
                 }
             }
@@ -248,12 +273,15 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
             else {
                 require(refundable(epochs[i], msg.sender), "Not eligible for refund");
                 addedReward = ledger[epochs[i]][msg.sender].amount;
+                addedReward += ledger[epochs[i]][msg.sender].freezer;
                 refundCheck = true;
             }
 
+
+            order = i;
             ledger[epochs[i]][msg.sender].claimed = true;
             reward += addedReward;
-            order = i;
+
             emit Claim(msg.sender, epochs[i], addedReward);
         }
 
@@ -265,20 +293,20 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         }
 
         if (reward > 0) {
-            if (checkSpecialRound() || refundCheck){
+            if (checkSpecialRound()){
                 acaToken.safeTransfer(msg.sender, reward);
                 refundCheck = false;
             }
             else{
-                acaToken.safeTransfer(msg.sender, reward*99/100); 
-                PendingAmountSpecial += reward / 100; //for special round per day
-            }
-            if (userLeader[msg.sender].seriesWin < _seriesWin) {
-                userLeader[msg.sender].seriesWin = _seriesWin;
+                acaToken.safeTransfer(msg.sender, reward.mul(99).div(100)); 
+                PendingAmountSpecial += reward.div(100); //for special round per day
+                refundCheck = false;
             }
         }
+        if (userLeader[msg.sender].seriesWin < _seriesWin) {
+                userLeader[msg.sender].seriesWin = _seriesWin;
+        }
     }
-
 
     /**
      * @notice Start the next round n, lock price for round n-1, end round n-2
@@ -441,7 +469,7 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @param _amount: token amount
      * @dev Callable by owner
      */
-    function recoverToken(address _token, uint256 _amount) external override virtual onlyOwner {
+    function recoverToken(address _token, uint256 _amount) external virtual override onlyOwner {
         IERC20(_token).safeTransfer(address(msg.sender), _amount);
 
         emit TokenRecovery(_token, _amount);
@@ -470,6 +498,7 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         uint256 size
     )
         external
+        virtual
         view
         returns (
             uint256[] memory,
@@ -498,7 +527,7 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      * @notice Returns round epochs length
      * @param user: user address
      */
-    function getUserRoundsLength(address user) external view returns (uint256) {
+    function getUserRoundsLength(address user) external virtual view returns (uint256) {
         return userRounds[user].length;
     }
 
@@ -711,7 +740,6 @@ abstract contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     }
 
 
-    
     /**
      * @notice Returns true if `account` is a contract.
      * @param account: account address

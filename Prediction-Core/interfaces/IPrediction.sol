@@ -2,9 +2,9 @@
 pragma solidity ^0.6.0;
 
 interface IPrediction {
-    function betbear(uint256 epoch, uint256 amount) external;
+    function betBear(uint256 epoch, uint256 amount, uint256 _freezer) external;
 
-    function betbull(uint256 epoch, uint256 amount) external;
+    function betBull(uint256 epoch, uint256 amount, uint256 _freezer) external;
 
     function executeRound() external;
 
