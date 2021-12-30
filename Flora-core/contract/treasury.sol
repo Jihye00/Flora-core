@@ -57,7 +57,7 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         address user_ = user;
         BoardData memory data = users[user_];
         data.rewardEarned = updateAddReward(user_).add(data.rewardEarned);
-        users[msg.sender] = data;
+        users[user_] = data;
         _;
     }
 
@@ -109,9 +109,9 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         return users[msg.sender].LatestStaking;
     }
 
-    function update_RPS() public view returns (uint256) {
+    function update_RPS(address user_) public view returns (uint256) {
         require (totalSupply() > 0, "Divided by 0");
-        return acaReward.div(totalSupply()).div(24*60*60);
+        return acaReward.mul(balanceOf(user_)).div(totalSupply()).div(24*60*60);
     }
 
     function displayReward() external updateReward(msg.sender) returns (uint256) {
@@ -230,7 +230,7 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
             users[user].additionalReward = 4500;
         }
         
-        return update_RPS().mul(updateInterval).mul(balanceOf(user)).mul(1 + (users[user].additionalReward).div(10000)); 
+        return update_RPS(user).mul(updateInterval).mul(1 + (users[user].additionalReward).div(10000)); 
     }
 
 }
