@@ -99,6 +99,89 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         require (_additionalPercentage > 0, "Zero percentage");
         additionalPercentage = _additionalPercentage;
     }
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.6.0;
+
+import "./interfaces/IERC20.sol";
+import "./utils/SafeERC20.sol";
+import "./utils/Ownable.sol";
+import "./utils/Address.sol";
+import "./interfaces/ITreasury.sol";
+import "./utils/ContractGuard.sol";
+import "./utils/SafeMath.sol";
+import "./interfaces/IASSET.sol";
+
+contract Treasury is ITreasury, ContractGuard, Ownable{
+    using SafeERC20 for IERC20;
+    using SafeMath for uint256;
+    using Address for address;
+
+    IERC20 public aca;
+    uint256 private _totalSupply = 0;
+    uint256 public totalLending = 0;
+    mapping(address => uint256) public _balances;
+
+    uint256 public acaReward = 16800 ether;
+    uint256 public withdrawLockup = 7 days;
+    uint256 public additionalPercentage = 500; //5%
+    address public BBfund;
+    address public acaToken;
+    /***************** STRUCTURE *****************/
+    struct BoardData {
+        uint256 LatestStaking;
+        uint256 rewardEarned;
+        uint256 additionalReward; //100 for 1%, 1000 for 10%
+        uint256 LatestRewardUpdate;
+        uint256 lendingAmount; //총 빌린 양
+        uint256 initLending; //Staking하면 lending amount가 0일때만 스테이킹하고 initLending 증가 가능
+        uint256 lendingStart;
+    }
+    mapping(address => BoardData) public users;
+
+    /***************** EVENTS *****************/
+    event Initialized(address indexed executor, uint256 time, uint256 at);
+    event Staked(address indexed user, uint256 amount);
+    event Withdrawn(address indexed user, uint256 amount);
+    event RewardPaid(address indexed user, uint256 reward);
+    event RewardAdded(address indexed user, uint256 reward);
+
+    /***************** MODIFIERS *****************/
+    modifier userExists {
+        require(balanceOf(msg.sender) > 0, "User not exists");
+        _;
+    }
+
+    modifier updateReward(address user) {
+        require(user != address(0), "Zero account");
+        address user_ = user;
+        BoardData memory data = users[user_];
+        data.rewardEarned = updateAddReward(user_).add(data.rewardEarned);
+        users[user_] = data;
+        _;
+    }
+
+
+    /***************** CONTRACTS *****************/
+    constructor(address _aca, address _BBfund) public {
+        withdrawLockup = 7 days;
+        aca = IERC20(_aca);
+        acaToken = _aca;
+        BBfund = _BBfund;
+    }
+
+    function updateAcaciaReward(uint256 _acaReward) external onlyOwner {
+        require (_acaReward > 0 , "Zero aca reward");
+        acaReward = _acaReward;
+    }
+
+    function setLockUp(uint256 _withdrawLockup) external onlyOwner {
+        withdrawLockup = _withdrawLockup;
+    }
+
+    function setAdditionalReward(uint256 _additionalPercentage) external onlyOwner {
+        require (_additionalPercentage > 0, "Zero percentage");
+        additionalPercentage = _additionalPercentage;
+    }
 
     /***************** VIEW FUNCTIONS *****************/
     function canWithdraw(address user) public view returns (bool) {
@@ -138,7 +221,7 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         emit Staked(msg.sender, amount);
     }
 
-    function _withdraw(uint256 amount) virtual override public onlyOneBlock userExists updateReward(msg.sender) updateInterest(msg.sender){
+    function _withdraw(uint256 amount) virtual override public onlyOneBlock userExists updateReward(msg.sender){
         require (amount <= balanceOf(msg.sender) && amount > 0, "Out of Range");
         require (canWithdraw(msg.sender), "Wait for at least 7 days");
         require (users[msg.sender].lendingAmount == 0, "Repay all lending amount");
@@ -149,7 +232,7 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         emit Withdrawn(msg.sender, amount);
     }
 
-    function claimReward_To_Wallet() virtual override public onlyOneBlock updateReward(msg.sender) updateInterest(msg.sender){
+    function claimReward_To_Wallet() virtual override public onlyOneBlock updateReward(msg.sender){
         require(users[msg.sender].rewardEarned > 0, "Cannot get 0 reward");
         uint256 reward = users[msg.sender].rewardEarned;
         users[msg.sender].rewardEarned = 0;
@@ -159,7 +242,7 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         emit RewardPaid(msg.sender, reward);
     }
 
-    function claimReward_To_Staking() virtual override public onlyOneBlock userExists updateReward(msg.sender) updateInterest(msg.sender){
+    function claimReward_To_Staking() virtual override public onlyOneBlock userExists updateReward(msg.sender){
         require(users[msg.sender].rewardEarned > 0, "Cannot get 0 reward");
         uint256 reward = users[msg.sender].rewardEarned;
         users[msg.sender].rewardEarned = 0;
@@ -167,7 +250,7 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         emit RewardPaid(msg.sender, reward);
     }
 
-    function lending(uint256 amount) external virtual onlyOneBlock userExists updateInterest(msg.sender){
+    function lending(uint256 amount) external virtual onlyOneBlock userExists{
         require (amount > 0, "Cannot lend 0 amount");
         require (users[msg.sender].lendingAmount + amount <= users[msg.sender].initLending, "Already lent");
         totalLending += amount;
@@ -176,16 +259,16 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         aca.safeTransfer(msg.sender, amount);
     }
 
-    function repay(uint256 amount) external virtual onlyOneBlock userExists updateInterest(msg.sender) {
+    function repay(uint256 amount) external virtual onlyOneBlock userExists {
         require (amount > 0, "Cannot repay 0 amount");
-        require (users[msg.sender].lendingAmount >= amount, "More than you lent");
+        require (users[msg.sender].lendingAmount >= amount, "More than you can");
         totalLending -= amount;
         users[msg.sender].lendingAmount -= amount;
-        aca.safeTransfer(address(this), amount);
+        aca.safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    function giveUp() external virtual onlyOneBlock userExists  {
-        IAsset(acaToken).burn(balanceOf(msg.sender));
+    function giveUp() external virtual onlyOneBlock userExists {
+        aca.safeTransfer(BBfund, balanceOf(msg.sender));
         _balances[msg.sender] = 0;
         users[msg.sender].LatestStaking = 0;
         users[msg.sender].rewardEarned = 0;
@@ -212,7 +295,7 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
 
     function updateAddReward(address user) internal returns (uint256) {
         uint256 _now = block.timestamp;
-        updateInterval = _now - users[user].LatestRewardUpdate;
+        uint256 updateInterval = _now - users[user].LatestRewardUpdate;
 
         if (updateInterval / 7 days == 0) {
             users[user].additionalReward = 0;
@@ -232,5 +315,4 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         
         return update_RPS(user).mul(updateInterval).mul(1 + (users[user].additionalReward).div(10000)); 
     }
-
 }
