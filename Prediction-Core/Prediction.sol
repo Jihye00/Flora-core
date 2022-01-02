@@ -37,7 +37,6 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
 
     uint256 public currentEpoch; // current epoch for prediction round
 
-    uint256 public oracleLatestRoundId; // Latest round Id of Oracle (Price update)
     uint256 public oracleUpdateAllowance; // round.lockTimestamp - oracleupdateAllowance < update price. In sec.
 
     uint256 public constant MAX_BB_FEE = 900; // 10%. Usually 5%, which means MAX_BB_FEE == 500
@@ -134,7 +133,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
 
     modifier notContract() {
         require(!_isContract(msg.sender), "Contract not allowed");
-        require(msg.sender == tx.origin, "Proxy contract not allowed");
+        require(msg.sender == msg.sender, "Proxy contract not allowed");
         _;
     }
 
@@ -163,7 +162,6 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         minBetAmount = _minBetAmount;
         oracleUpdateAllowance = 10 minutes;
         BBFee = _BBFee;
-        oracleLatestRoundId = 0;
     }
 
     /**
@@ -173,7 +171,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     function betBear(uint256 epoch, uint256 amount, uint256 _freezer) external virtual override payable whenNotPaused nonReentrant notContract {
         require(epoch == currentEpoch, "Bet is too early/late");
         require(_bettable(epoch), "Round not bettable");
-        require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
+        require(amount >= minBetAmount, "Bet amount must be greater than minBetAmount");
         require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
 
         if (_freezer != 0) {
@@ -201,7 +199,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     function betBull(uint256 epoch, uint256 amount, uint256 _freezer) external virtual override payable whenNotPaused nonReentrant notContract {
         require(epoch == currentEpoch, "Bet is too early/late");
         require(_bettable(epoch), "Round not bettable");
-        require(msg.value >= minBetAmount, "Bet amount must be greater than minBetAmount");
+        require(amount >= minBetAmount, "Bet amount must be greater than minBetAmount");
         require(ledger[epoch][msg.sender].amount == 0, "Can only bet once per round");
 
         // Update round data
@@ -285,7 +283,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
             emit Claim(msg.sender, epochs[i], addedReward);
         }
 
-        if (claimable(epochs[order-1], msg.sender)) {
+        if (claimable(epochs[order], msg.sender)) {
             userLeader[msg.sender].prevWin = true;
         }
         else {
@@ -322,8 +320,6 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         uint256 currentRoundId = currentEpoch; 
         uint256 currentPrice = price_;
 
-        oracleLatestRoundId = currentRoundId;
-
         // CurrentEpoch refers to previous round (n-1)
         _safeLockRound(currentEpoch, currentRoundId, currentPrice);
         _safeEndRound(currentEpoch - 1, currentRoundId, currentPrice);
@@ -345,8 +341,6 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
 
         uint256 currentRoundId = currentEpoch;
         uint256 currentPrice = price_;
-
-        oracleLatestRoundId = uint256(currentRoundId);
 
         _safeLockRound(currentEpoch, currentRoundId, currentPrice);
 
