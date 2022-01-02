@@ -240,29 +240,32 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
                     Round memory round = rounds[epochs[i]];
                     addedReward = (ledger[epochs[i]][msg.sender].amount.mul(round.rewardAmount)).div(round.rewardBaseCalAmount);
                     userLeader[msg.sender].wintime = userLeader[msg.sender].wintime + 1;
-                    
+
                     if (i == 0 && userLeader[msg.sender].prevWin == true){
-                        _seriesWin = userLeader[msg.sender].seriesWin + 1;
+                        _seriesWin = (userLeader[msg.sender].seriesWin + 1);
                     }
                     else {
                         _seriesWin += 1;
                     }
-                    
                 }
                 
                 else { //Lose game
-                    if (ledger[epochs[i]][msg.sender].freezer == 0){ //No freezer
-                        if (userLeader[msg.sender].seriesWin < _seriesWin) {
-                            userLeader[msg.sender].seriesWin = _seriesWin;
+                    BetInfo memory betInfo = ledger[epochs[i]][msg.sender];
+                    if (betInfo.amount != 0) {
+                        if (ledger[epochs[i]][msg.sender].freezer == 0){ //No freezer
+                            if (userLeader[msg.sender].seriesWin < _seriesWin) {
+                                userLeader[msg.sender].seriesWin = _seriesWin;
+                            }
+                            _seriesWin = 0;
                         }
-                        _seriesWin = 0;
-                    }
-                    else { //freezer is ON
-                        if (i == 0 && userLeader[msg.sender].prevWin == true){
-                            _seriesWin = userLeader[msg.sender].seriesWin + 1;
-                        }
-                        else {
-                            _seriesWin += 1;
+                        else { //freezer is ON
+                            userLeader[msg.sender].wintime = userLeader[msg.sender].wintime + 1;
+                            if (i == 0 && userLeader[msg.sender].prevWin == true){
+                                _seriesWin = userLeader[msg.sender].seriesWin + 1;
+                            }
+                            else {
+                                _seriesWin += 1;
+                            }
                         }
                     }
                 }
@@ -275,7 +278,6 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
                 refundCheck = true;
             }
 
-
             order = i;
             ledger[epochs[i]][msg.sender].claimed = true;
             reward += addedReward;
@@ -283,7 +285,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
             emit Claim(msg.sender, epochs[i], addedReward);
         }
 
-        if (claimable(epochs[order], msg.sender)) {
+        if (claimable(epochs[order], msg.sender) || ledger[epochs[order]][msg.sender].freezer != 0) {
             userLeader[msg.sender].prevWin = true;
         }
         else {
@@ -302,7 +304,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
             }
         }
         if (userLeader[msg.sender].seriesWin < _seriesWin) {
-                userLeader[msg.sender].seriesWin = _seriesWin;
+            userLeader[msg.sender].seriesWin = _seriesWin;
         }
     }
 
@@ -361,169 +363,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         genesisStartOnce = true;
     }
 
-    /**
-     * @notice called by the admin to pause, triggers stopped state
-     * @dev Callable by admin or operator
-     */
-    function pause() external virtual override whenNotPaused onlyAdminOrOperator {
-        _pause();
-
-        emit Pause(currentEpoch);
-    }
-
-    /**
-     * @notice Claim all rewards in BB
-     * @dev Callable by admin
-     */
-    function claimBB() external virtual override nonReentrant onlyAdmin {
-        uint256 currentBBAmount = BBAmount;
-        BBAmount = 0;
-        acaToken.safeTransfer(adminAddress, currentBBAmount); //adminAddress will be same as trasury address for easy calculations
-
-        emit BBClaim(currentBBAmount);
-    }
-
-    /**
-     * @notice called by the admin to unpause, returns to normal state
-     * Reset genesis state. Once paused, the rounds would need to be kickstarted by genesis
-     */
-    function unpause() external virtual override whenPaused onlyAdmin {
-        genesisStartOnce = false;
-        genesisLockOnce = false;
-        _unpause();
-
-        emit Unpause(currentEpoch);
-    }
-
-    /**
-     * @notice Set buffer and interval (in seconds)
-     * @dev Callable by admin
-     */
-    function setBufferAndIntervalSeconds(uint256 _bufferSeconds, uint256 _intervalSeconds)
-        virtual
-        override
-        external
-        whenPaused
-        onlyAdmin
-    {
-        require(_bufferSeconds < _intervalSeconds, "bufferSeconds must be inferior to intervalSeconds");
-        bufferSeconds = _bufferSeconds;
-        intervalSeconds = _intervalSeconds;
-
-        emit NewBufferAndIntervalSeconds(_bufferSeconds, _intervalSeconds);
-    }
-
-    /**
-     * @notice Set minBetAmount
-     * @dev Callable by admin
-     */
-    function setMinBetAmount(uint256 _minBetAmount) external virtual override whenPaused onlyAdmin {
-        require(_minBetAmount != 0, "Must be superior to 0");
-        minBetAmount = _minBetAmount;
-
-        emit NewMinBetAmount(currentEpoch, minBetAmount);
-    }
-
-    /**
-     * @notice Set operator address
-     * @dev Callable by admin
-     */
-    function setOperator(address _operatorAddress) external virtual override onlyAdmin {
-        require(_operatorAddress != address(0), "Cannot be zero address");
-        operatorAddress = _operatorAddress;
-
-        emit NewOperatorAddress(_operatorAddress);
-    }
-
-
-    /**
-     * @notice Set oracle update allowance
-     * @dev Callable by admin
-     */
-    function setOracleUpdateAllowance(uint256 _oracleUpdateAllowance) external virtual override whenPaused onlyAdmin {
-        oracleUpdateAllowance = _oracleUpdateAllowance;
-
-        emit NewOracleUpdateAllowance(_oracleUpdateAllowance);
-    }
-
-    /**
-     * @notice Set BB fee
-     * @dev Callable by admin
-     */
-    function setBBFee(uint256 _BBFee) external virtual override whenPaused onlyAdmin {
-        require(_BBFee <= MAX_BB_FEE, "BB fee too high");
-        BBFee = _BBFee;
-
-        emit NewBBFee(currentEpoch, BBFee);
-    }
-
-    /**
-     * @notice It allows the owner to recover tokens sent to the contract by mistake
-     * @param _token: token address
-     * @param _amount: token amount
-     * @dev Callable by owner
-     */
-    function recoverToken(address _token, uint256 _amount) external virtual override onlyOwner {
-        IERC20(_token).safeTransfer(address(msg.sender), _amount);
-
-        emit TokenRecovery(_token, _amount);
-    }
-
-    /**
-     * @notice Set admin address
-     * @dev Callable by owner
-     */
-    function setAdmin(address _adminAddress) external virtual override onlyOwner {
-        require(_adminAddress != address(0), "Cannot be zero address");
-        adminAddress = _adminAddress;
-
-        emit NewAdminAddress(_adminAddress);
-    }
-
-    /**
-     * @notice Returns round epochs and bet information for a user that has participated
-     * @param user: user address
-     * @param cursor: cursor
-     * @param size: size
-     */
-    function getUserRounds(
-        address user,
-        uint256 cursor,
-        uint256 size
-    )
-        external
-        virtual
-        view
-        returns (
-            uint256[] memory,
-            BetInfo[] memory,
-            uint256
-        )
-    {
-        uint256 length = size;
-
-        if (length > userRounds[user].length - cursor) {
-            length = userRounds[user].length - cursor;
-        }
-
-        uint256[] memory values = new uint256[](length);
-        BetInfo[] memory betInfo = new BetInfo[](length);
-
-        for (uint256 i = 0; i < length; i++) {
-            values[i] = userRounds[user][cursor + i];
-            betInfo[i] = ledger[values[i]][user];
-        }
-
-        return (values, betInfo, cursor + length);
-    }
-
-    /**
-     * @notice Returns round epochs length
-     * @param user: user address
-     */
-    function getUserRoundsLength(address user) external virtual view returns (uint256) {
-        return userRounds[user].length;
-    }
+   
 
     /**
      * @notice Get the claimable stats of specific epoch and user account
@@ -731,6 +571,170 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
 
     function playTime() external view returns(uint256) {
         return userLeader[msg.sender].playtime;
+    }
+
+     /**
+     * @notice called by the admin to pause, triggers stopped state
+     * @dev Callable by admin or operator
+     */
+    function pause() external virtual override whenNotPaused onlyAdminOrOperator {
+        _pause();
+
+        emit Pause(currentEpoch);
+    }
+
+    /**
+     * @notice Claim all rewards in BB
+     * @dev Callable by admin
+     */
+    function claimBB() external virtual override nonReentrant onlyAdmin {
+        uint256 currentBBAmount = BBAmount;
+        BBAmount = 0;
+        acaToken.safeTransfer(adminAddress, currentBBAmount); //adminAddress will be same as trasury address for easy calculations
+
+        emit BBClaim(currentBBAmount);
+    }
+
+    /**
+     * @notice called by the admin to unpause, returns to normal state
+     * Reset genesis state. Once paused, the rounds would need to be kickstarted by genesis
+     */
+    function unpause() external virtual override whenPaused onlyAdmin {
+        genesisStartOnce = false;
+        genesisLockOnce = false;
+        _unpause();
+
+        emit Unpause(currentEpoch);
+    }
+
+    /**
+     * @notice Set buffer and interval (in seconds)
+     * @dev Callable by admin
+     */
+    function setBufferAndIntervalSeconds(uint256 _bufferSeconds, uint256 _intervalSeconds)
+        virtual
+        override
+        external
+        whenPaused
+        onlyAdmin
+    {
+        require(_bufferSeconds < _intervalSeconds, "bufferSeconds must be inferior to intervalSeconds");
+        bufferSeconds = _bufferSeconds;
+        intervalSeconds = _intervalSeconds;
+
+        emit NewBufferAndIntervalSeconds(_bufferSeconds, _intervalSeconds);
+    }
+
+    /**
+     * @notice Set minBetAmount
+     * @dev Callable by admin
+     */
+    function setMinBetAmount(uint256 _minBetAmount) external virtual override whenPaused onlyAdmin {
+        require(_minBetAmount != 0, "Must be superior to 0");
+        minBetAmount = _minBetAmount;
+
+        emit NewMinBetAmount(currentEpoch, minBetAmount);
+    }
+
+    /**
+     * @notice Set operator address
+     * @dev Callable by admin
+     */
+    function setOperator(address _operatorAddress) external virtual override onlyAdmin {
+        require(_operatorAddress != address(0), "Cannot be zero address");
+        operatorAddress = _operatorAddress;
+
+        emit NewOperatorAddress(_operatorAddress);
+    }
+
+
+    /**
+     * @notice Set oracle update allowance
+     * @dev Callable by admin
+     */
+    function setOracleUpdateAllowance(uint256 _oracleUpdateAllowance) external virtual override whenPaused onlyAdmin {
+        oracleUpdateAllowance = _oracleUpdateAllowance;
+
+        emit NewOracleUpdateAllowance(_oracleUpdateAllowance);
+    }
+
+    /**
+     * @notice Set BB fee
+     * @dev Callable by admin
+     */
+    function setBBFee(uint256 _BBFee) external virtual override whenPaused onlyAdmin {
+        require(_BBFee <= MAX_BB_FEE, "BB fee too high");
+        BBFee = _BBFee;
+
+        emit NewBBFee(currentEpoch, BBFee);
+    }
+
+    /**
+     * @notice It allows the owner to recover tokens sent to the contract by mistake
+     * @param _token: token address
+     * @param _amount: token amount
+     * @dev Callable by owner
+     */
+    function recoverToken(address _token, uint256 _amount) external virtual override onlyOwner {
+        IERC20(_token).safeTransfer(address(msg.sender), _amount);
+
+        emit TokenRecovery(_token, _amount);
+    }
+
+    /**
+     * @notice Set admin address
+     * @dev Callable by owner
+     */
+    function setAdmin(address _adminAddress) external virtual override onlyOwner {
+        require(_adminAddress != address(0), "Cannot be zero address");
+        adminAddress = _adminAddress;
+
+        emit NewAdminAddress(_adminAddress);
+    }
+
+    /**
+     * @notice Returns round epochs and bet information for a user that has participated
+     * @param user: user address
+     * @param cursor: cursor
+     * @param size: size
+     */
+    function getUserRounds(
+        address user,
+        uint256 cursor,
+        uint256 size
+    )
+        external
+        virtual
+        view
+        returns (
+            uint256[] memory,
+            BetInfo[] memory,
+            uint256
+        )
+    {
+        uint256 length = size;
+
+        if (length > userRounds[user].length - cursor) {
+            length = userRounds[user].length - cursor;
+        }
+
+        uint256[] memory values = new uint256[](length);
+        BetInfo[] memory betInfo = new BetInfo[](length);
+
+        for (uint256 i = 0; i < length; i++) {
+            values[i] = userRounds[user][cursor + i];
+            betInfo[i] = ledger[values[i]][user];
+        }
+
+        return (values, betInfo, cursor + length);
+    }
+
+    /**
+     * @notice Returns round epochs length
+     * @param user: user address
+     */
+    function getUserRoundsLength(address user) external virtual view returns (uint256) {
+        return userRounds[user].length;
     }
 
 
