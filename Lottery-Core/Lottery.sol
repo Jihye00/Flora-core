@@ -9,7 +9,6 @@ import "./interfaces/IERC20.sol";
 import "./utils/ReentrancyGuard.sol";
 import "./interfaces/IFloraLottery.sol";
 import "./utils/SafeMath.sol";
-import "./utils/Address.sol";
 import "./utils/ERC20.sol";
 import "./utils/SafeERC20.sol";
 import "./interfaces/IASSET.sol";
@@ -20,16 +19,14 @@ import "./interfaces/IASSET.sol";
  * @notice It is a contract for a lottery system using
  * randomness provided externally.
  */
-abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable{
+contract FloraLottery is ReentrancyGuard, IFloraLottery, Ownable{
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
     using Address for address;
 
     uint public randomNumber;
 
-    address public injectorAddress;
     address public operatorAddress;
-    address public bankAddress;
 
     uint256 public currentLotteryId;
     uint256 public currentTicketId;
@@ -41,16 +38,14 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
 
     uint256 public pendingInjectionNextLottery;
 
-    uint256 public constant MIN_DISCOUNT_DIVISOR = 300;
+    uint256 public constant MIN_DISCOUNT_DIVISOR = 300; //3% discount
     uint256 public constant MIN_LENGTH_LOTTERY = 6 hours - 5 minutes; // 6 hours
     uint256 public constant MAX_LENGTH_LOTTERY = 4 days + 5 minutes; // 4 days
-    uint256 public constant MAX_BANK_FEE = 3500; // 35%
 
     IERC20 public acaToken;
     address public aca;
 
     enum Status {
-        Pending,
         Open,
         Close,
         Claimable
@@ -63,7 +58,6 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
         uint256 priceTicketInAcacia;
         uint256 discountDivisor;
         uint256[5] rewardsBreakdown; // 0: 1 matching number // 4: 5 matching numbers, [4000, 2000, 1000, 600, 400]
-        uint256 bankFee; // 500: 5% // 200: 2% // 50: 0.5%
         uint256[5] acaPerBracket; 
         uint256[5] countWinnersPerBracket;
         uint256 firstTicketId;
@@ -101,11 +95,6 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
         _;
     }
 
-    modifier onlyOwnerOrInjector() {
-        require((msg.sender == owner()) || (msg.sender == injectorAddress), "Not owner or injector");
-        _;
-    }
-
     event AdminTokenRecovery(address token, uint256 amount);
     event LotteryClose(uint256 indexed lotteryId, uint256 firstTicketIdNextLottery);
     event LotteryInjection(uint256 indexed lotteryId, uint256 injectedAmount);
@@ -118,7 +107,7 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
         uint256 injectedAmount
     );
     event LotteryNumberDrawn(uint256 indexed lotteryId, uint256 finalNumber, uint256 countWinningTickets);
-    event NewOperatorAndBankAndInjectorAddresses(address operator, address bank, address injector);
+    event NewOperatorAndBankAndInjectorAddresses(address operator);
     event TicketsPurchase(address indexed buyer, uint256 indexed lotteryId, uint256 numberTickets);
     event TicketsClaim(address indexed claimer, uint256 amount, uint256 indexed lotteryId, uint256 numberTickets);
 
@@ -266,12 +255,14 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
     /**
      * @notice Draw the final number, calculate reward in Acacia per group, and make lottery claimable
      * @param _lotteryId: lottery id
+     * @param _randomNumber: Random number before adding 100000
      * @dev Callable by operator
      */
     function drawFinalNumberAndMakeLotteryClaimable(uint256 _lotteryId, uint32 _randomNumber)
         virtual
+        override
         external
-        onlyOperator
+        onlyOwner
         nonReentrant
     {
         require(_lotteries[_lotteryId].status == Status.Close, "Lottery not close");
@@ -281,21 +272,17 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
 
         // Initialize a number to count addresses in the previous bracket
         uint256 numberAddressesInPreviousBracket = 0;
-        uint256 amountToBank = 0;
         // Calculate the amount to share post-bank fee
-        uint256 amountToShareToWinners = (
-            ((_lotteries[_lotteryId].amountCollectedInAcacia) * (10000 - _lotteries[_lotteryId].bankFee))
-        ) / 10000;
+        uint256 amountToShareToWinners = (_lotteries[_lotteryId].amountCollectedInAcacia);
 
         // Initializes the amount to withdraw to bank
         uint256 amountToWithdrawToBank;
 
         // Calculate prizes in Acacia for each bracket by starting from the highest one
         for (uint32 i = 0; i < 5; i++) {
-            uint32 j = 4 - i;
-            uint32 transformedWinningNumber = _bracketCalculator[j] + uint32(finalNumber / (uint32(10)**(i)));
+            uint32 transformedWinningNumber = _bracketCalculator[4-i] + uint32(((finalNumber+100000) / (uint32(10)**(i))));
 
-            _lotteries[_lotteryId].countWinnersPerBracket[j] =
+            _lotteries[_lotteryId].countWinnersPerBracket[4-i] =
                 _numberTicketsPerLotteryId[_lotteryId][transformedWinningNumber] -
                 numberAddressesInPreviousBracket;
 
@@ -305,22 +292,21 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
                 0
             ) {
                 // B. If rewards at this bracket are > 0, calculate, else, report the numberAddresses from previous bracket
-                if (_lotteries[_lotteryId].rewardsBreakdown[j] != 0) {
-                    _lotteries[_lotteryId].acaPerBracket[j] =
-                        ((_lotteries[_lotteryId].rewardsBreakdown[j].mul(amountToShareToWinners)).div(
+                if (_lotteries[_lotteryId].rewardsBreakdown[4-i] != 0) {
+                    _lotteries[_lotteryId].acaPerBracket[4-i] =
+                        ((_lotteries[_lotteryId].rewardsBreakdown[4-i].mul(amountToShareToWinners)).div(
                             (_numberTicketsPerLotteryId[_lotteryId][transformedWinningNumber] -
-                                numberAddressesInPreviousBracket))).div(
-                        10000);
+                                numberAddressesInPreviousBracket))).div(10000);
 
                     // Update numberAddressesInPreviousBracket
                     numberAddressesInPreviousBracket = _numberTicketsPerLotteryId[_lotteryId][transformedWinningNumber];
                 }
                 // A. No Acacia to distribute, they are added to the amount to withdraw to bank address
             } else {
-                _lotteries[_lotteryId].acaPerBracket[j] = 0;
+                _lotteries[_lotteryId].acaPerBracket[4-i] = 0;
 
                 amountToWithdrawToBank +=
-                    (_lotteries[_lotteryId].rewardsBreakdown[j] * amountToShareToWinners) /
+                    (_lotteries[_lotteryId].rewardsBreakdown[4-i] * amountToShareToWinners) /
                     10000;
             }
         }
@@ -330,14 +316,8 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
         _lotteries[_lotteryId].status = Status.Claimable;
 
         pendingInjectionNextLottery = amountToWithdrawToBank.mul(3500).div(10000);
-        IAsset(aca).burn(amountToWithdrawToBank.mul(6500).div(10000)); // We will burn amountToWithdrawToBank.
+        IAsset(aca).burn(amountToWithdrawToBank.mul(6500).div(10000)); // We will burn 65% of amountToWithdrawToBank.
 
-        amountToBank = amountToBank.add((_lotteries[_lotteryId].amountCollectedInAcacia - amountToShareToWinners)); //Add bank fee
-
-        // Transfer Acacia to bank address
-        if (amountToBank != 0) {
-            acaToken.safeTransfer(bankAddress, amountToBank);
-        }
         emit LotteryNumberDrawn(currentLotteryId, finalNumber, numberAddressesInPreviousBracket);
     }
 
@@ -347,7 +327,7 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
      * @param _amount: amount to inject in Acacia token
      * @dev Callable by owner or injector address
      */
-    function injectFunds(uint256 _lotteryId, uint256 _amount) external virtual override onlyOwnerOrInjector {
+    function injectFunds(uint256 _lotteryId, uint256 _amount) external virtual override onlyOperator {
         require(_lotteries[_lotteryId].status == Status.Open, "Lottery not open");
 
         acaToken.safeTransferFrom(address(msg.sender), address(this), _amount);
@@ -363,14 +343,12 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
      * @param _priceTicketInAcacia: price of a ticket in Acacia
      * @param _discountDivisor: the divisor to calculate the discount magnitude for bulks
      * @param _rewardsBreakdown: breakdown of rewards per bracket (must sum to 10,000)
-     * @param _bankFee: bank fee (10,000 = 100%, 100 = 1%)
      */
     function startLottery(
         uint256 _endTime,
         uint256 _priceTicketInAcacia,
         uint256 _discountDivisor,
-        uint256[5] calldata _rewardsBreakdown,
-        uint256 _bankFee
+        uint256[5] calldata _rewardsBreakdown
     ) external virtual override onlyOperator {
         require(
             (currentLotteryId == 0) || (_lotteries[currentLotteryId].status == Status.Claimable),
@@ -388,7 +366,7 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
         );
 
         require(_discountDivisor >= MIN_DISCOUNT_DIVISOR, "Discount divisor too low");
-        require(_bankFee <= MAX_BANK_FEE, "Bank fee too high");
+        
 
         require(
             (_rewardsBreakdown[0] +
@@ -409,7 +387,6 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
             priceTicketInAcacia: _priceTicketInAcacia,
             discountDivisor: _discountDivisor,
             rewardsBreakdown: _rewardsBreakdown,
-            bankFee: _bankFee,
             acaPerBracket: [uint256(0), uint256(0), uint256(0), uint256(0), uint256(0)], //Original : 6
             countWinnersPerBracket: [uint256(0), uint256(0), uint256(0), uint256(0), uint256(0)], //Original : 6
             firstTicketId: currentTicketId,
@@ -473,23 +450,15 @@ abstract contract FloraLottery is ReentrancyGuard, ERC20, IFloraLottery, Ownable
      * @notice Set operator, bank, and injector addresses
      * @dev Only callable by owner
      * @param _operatorAddress: address of the operator
-     * @param _bankAddress: address of the bank
-     * @param _injectorAddress: address of the injector
      */
     function setOperatorAndBankAndInjectorAddresses(
-        address _operatorAddress,
-        address _bankAddress,
-        address _injectorAddress
+        address _operatorAddress
     ) external onlyOwner {
         require(_operatorAddress != address(0), "Cannot be zero address");
-        require(_bankAddress != address(0), "Cannot be zero address");
-        require(_injectorAddress != address(0), "Cannot be zero address");
 
         operatorAddress = _operatorAddress;
-        bankAddress = _bankAddress;
-        injectorAddress = _injectorAddress;
 
-        emit NewOperatorAndBankAndInjectorAddresses(_operatorAddress, _bankAddress, _injectorAddress);
+        emit NewOperatorAndBankAndInjectorAddresses(_operatorAddress);
     }
 
     /**
