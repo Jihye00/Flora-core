@@ -13,7 +13,7 @@ import "./utils/ERC20.sol";
 import "./utils/SafeERC20.sol";
 import "./interfaces/IASSET.sol";
 
-abstract contract poolTogether is BaseTrust, IPoolTogether{
+contract poolTogether is BaseTrust, IPoolTogether{
 
     using SafeMath for uint256;
     using Address for address;
@@ -58,12 +58,10 @@ abstract contract poolTogether is BaseTrust, IPoolTogether{
     mapping(uint256 => poolInfo) private pool;
 
     constructor(
-        string memory _name,
-        string memory _symbol,
         address _ksp,
         address _kslp,
         address _aca
-    ) public BaseTrust(_name, _symbol, _ksp, _kslp) { 
+    ) public BaseTrust(_ksp, _kslp) { 
         interval = 7 days;
         drawTime = 10 minutes;
         _order = 0;
@@ -103,11 +101,12 @@ abstract contract poolTogether is BaseTrust, IPoolTogether{
         } else {
             user[msg.sender].order = _order;
             userOrders[_order]._user = msg.sender;
-             _order += 1;
+            _order += 1;
             user[msg.sender].depositLP = increasedLP;
             user[msg.sender].ticketNumber = ticketNumber_;
             userOrders[_order].ticketNumber = ticketNumber_;
         }
+
         pool[currentId].totalTicket += ticketNumber_;
 
         // Return change
@@ -160,9 +159,9 @@ abstract contract poolTogether is BaseTrust, IPoolTogether{
         uint256 counter = randomNumber;
 
         for (uint256 i = 0; i < _order - 1; i++) {
-            if (counter > userOrders[i].ticketNumber) {
+            if (counter >= userOrders[i].ticketNumber) {
                 counter = randomNumber.sub(userOrders[i].ticketNumber);
-                if (counter < userOrders[i + 1].ticketNumber && user[userOrders[i+1]._user].depositLP != 0) {
+                if (counter <= userOrders[i + 1].ticketNumber) {
                     pool[currentId].winnerOrder = (i + 1);
                     break;
                 } else {
@@ -185,7 +184,7 @@ abstract contract poolTogether is BaseTrust, IPoolTogether{
     }
 
     function ticketCount() public view onlyOwner returns (uint256){
-        return pool[currentId].totalTicket;
+        return pool[currentId].totalTicket - 1;
     }
 
     function currentIdCount() public view onlyOwner returns (uint256) {

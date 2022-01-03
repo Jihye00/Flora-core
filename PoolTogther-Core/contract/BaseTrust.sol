@@ -2,7 +2,6 @@
 pragma solidity ^0.6.0;
 
 import "./interfaces/IERC20.sol";
-import "./utils/ERC20.sol";
 import "./utils/SafeERC20.sol";
 import "./utils/SafeMath.sol";
 import "./utils/ReentrancyGuard.sol";
@@ -13,7 +12,7 @@ import "./interfaces/IKSLP.sol";
 import "./interfaces/IKSP.sol";
 
 
-abstract contract BaseTrust is ITrust, ERC20, Ownable, ReentrancyGuard {
+contract BaseTrust is ITrust, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Address for address;
     using SafeMath for uint256;
@@ -24,15 +23,13 @@ abstract contract BaseTrust is ITrust, ERC20, Ownable, ReentrancyGuard {
     address public klayKspPool;
 
     address public ksp;
-    address public kslp;
+    address public kslp; //Pool together pool with USDT + ACA
 
 
     constructor(
-        string memory _name,
-        string memory _symbol,
         address _ksp,
         address _kslp
-    ) public ERC20(_name, _symbol) {
+    ) public {
         ksp = _ksp;
         kslp = _kslp;
         tokenA = IKSLP(kslp).tokenA();
@@ -62,18 +59,6 @@ abstract contract BaseTrust is ITrust, ERC20, Ownable, ReentrancyGuard {
         return (pos.add(neg)).div(2);
     }
     
-    function estimateRedeem(uint256 shares) public view virtual returns (uint256, uint256) {
-        uint256 totalBWTP = totalSupply();
-        require(shares <= totalBWTP);
-
-        (uint256 balanceA, uint256 balanceB) = totalValue();
-
-        uint256 estimatedA = (balanceA.mul(shares)).div(totalBWTP);
-        uint256 estimatedB = (balanceB.mul(shares)).div(totalBWTP);
-
-        return (estimatedA, estimatedB);
-    }
-
     function totalValue() public view virtual override returns (uint256, uint256) {
         (uint256 balAInTrust, uint256 balBInTrust) = _balanceInTrust();
         (uint256 balAInKSLP, uint256 balBInKSLP) = _balanceInKSLP();
@@ -259,5 +244,11 @@ abstract contract BaseTrust is ITrust, ERC20, Ownable, ReentrancyGuard {
             return estimatedToken;
         }
     }
+
+    function deposit(uint256 amountA, uint256 amountB) external virtual override { }
+
+    function depositKlay(uint256 _amount) external payable virtual override { }
+
+    function withdraw(uint256 _shares) external virtual override { }
 
 }
