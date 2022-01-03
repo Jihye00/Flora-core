@@ -234,7 +234,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
 
             uint256 addedReward = 0;
             
-            // Round valid, claim rewards
+            // Round valid, claim rewards, Frontend should block claim 
             if (rounds[epochs[i]].oracleCalled) {
                 if (claimable(epochs[i], msg.sender)){ //Win game
                     Round memory round = rounds[epochs[i]];
