@@ -188,8 +188,8 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         return users[user].LatestStaking.add(withdrawLockup) <= block.timestamp;
     }
 
-    function getLatestStaking() public view returns (uint256) {
-        return users[msg.sender].LatestStaking;
+    function getLatestStaking(address user_) public view returns (uint256) {
+        return users[user_].LatestStaking;
     }
 
     function update_RPS(address user_) public view returns (uint256) {
@@ -205,8 +205,12 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         return _totalSupply;
     }
 
-    function balanceOf(address account) public view returns (uint256) {
-        return _balances[account];
+    function balanceOf(address user_) public view returns (uint256) {
+        return _balances[user_];
+    }
+
+    function lending(address user_) public view returns (uint256, uint256) {
+        return (users[user_].initLending, users[user_].lendingAmount); //Initial possible Amount, Lent amount
     }
 
     /***************** MUTABLE FUNCTIONS *****************/

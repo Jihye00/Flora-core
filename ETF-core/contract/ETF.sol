@@ -222,7 +222,7 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
     function swap_from_aca(address token, uint256 amount) internal {
         address[] memory path;
         uint256 least = IKSLP(LP_C).estimatePos(token, amount).mul(9900).div(10000);
-        IKSP(token).exchangeKctPos(token, amount, usdt, least, path);
+        IKSP(ksp).exchangeKctPos(token, amount, usdt, least, path);
     }
 
     function _removeLiquidity(address lp, uint256 _amount) internal {
@@ -234,9 +234,9 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
     function _swap(uint256 forA, uint256 forB, uint256 forC) internal {
         address[] memory path; //No routing path
 
-        IKSP(usdt).exchangeKctPos(usdt, forA, tokenA, IKSLP(LP_A).estimatePos(usdt, forA).mul(9900).div(10000), path);
-        IKSP(usdt).exchangeKctPos(usdt, forB, tokenB, IKSLP(LP_B).estimatePos(usdt, forB).mul(9900).div(10000), path);
-        IKSP(usdt).exchangeKctPos(usdt, forC, tokenC, IKSLP(LP_C).estimatePos(usdt, forC).mul(9900).div(10000), path);
+        IKSP(ksp).exchangeKctPos(usdt, forA, tokenA, IKSLP(LP_A).estimatePos(usdt, forA).mul(9900).div(10000), path);
+        IKSP(ksp).exchangeKctPos(usdt, forB, tokenB, IKSLP(LP_B).estimatePos(usdt, forB).mul(9900).div(10000), path);
+        IKSP(ksp).exchangeKctPos(usdt, forC, tokenC, IKSLP(LP_C).estimatePos(usdt, forC).mul(9900).div(10000), path);
 
     }
 
