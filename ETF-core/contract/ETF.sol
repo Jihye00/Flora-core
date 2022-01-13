@@ -101,10 +101,10 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
         require (_amount > 0, "Cannot deposit 0");
 
         uint256 before = IERC20(usdt).balanceOf(address(this));
-
+        
         IERC20(usdt).transferFrom(msg.sender, address(this), _amount);
 
-        uint256 forA = _amount.mul(distributionA).div(20000);
+        uint256 forA = _amount.mul(distributionA).div(20000); //KSP + USDT
         uint256 forB = _amount.mul(distributionB).div(20000);
         uint256 forC = _amount.mul(distributionC).div(20000);
 
@@ -122,14 +122,13 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
         if ((_after - before) != 0) {
             uint256 give = (_after - before);
             IERC20(usdt).transfer(msg.sender, give);
-            users[msg.sender].amount = _amount.sub(give);
+            users[msg.sender].amount += _amount.sub(give); 
             totalAmount += _amount.sub(give);
         }
         else {
-            users[msg.sender].amount = _amount;
+            users[msg.sender].amount += _amount;
             totalAmount += _amount;
         }
-        
     }
 
     function deposit_rebalance(uint256 _amount, uint256 before) internal {
@@ -137,7 +136,7 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
         uint256 forA = _amount.mul(distributionA).div(20000);
         uint256 forB = _amount.mul(distributionB).div(20000);
         uint256 forC = _amount.mul(distributionC).div(20000);
-
+        
         uint256 beforeA = IERC20(tokenA).balanceOf(address(this));
         uint256 beforeB = IERC20(tokenB).balanceOf(address(this));
         uint256 beforeC = IERC20(tokenC).balanceOf(address(this));
@@ -191,9 +190,9 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
         IKSLP(LP_B).claimReward();
         IKSLP(LP_C).claimReward();
 
+        uint256 before = IERC20(usdt).balanceOf(address(this));
         swap_from_ksp(usdt);
         swap_from_aca(tokenC, IERC20(tokenC).balanceOf(address(this)));
-        uint256 before = IERC20(usdt).balanceOf(address(this));
         
         deposit_rebalance(IERC20(usdt).balanceOf(address(this)), before);
     }
@@ -220,9 +219,9 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
     }
 
     function swap_from_aca(address token, uint256 amount) internal {
-        address[] memory path;
+        address[] memory path = new address[](0);
         uint256 least = IKSLP(LP_C).estimatePos(token, amount).mul(9900).div(10000);
-        IKSP(ksp).exchangeKctPos(token, amount, usdt, least, path);
+        IKSP(token).exchangeKctPos(token, amount, usdt, least, path);
     }
 
     function _removeLiquidity(address lp, uint256 _amount) internal {
@@ -232,11 +231,11 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
     }
 
     function _swap(uint256 forA, uint256 forB, uint256 forC) internal {
-        address[] memory path; //No routing path
+        address[] memory path = new address[](0); //No routing path
 
-        IKSP(ksp).exchangeKctPos(usdt, forA, tokenA, IKSLP(LP_A).estimatePos(usdt, forA).mul(9900).div(10000), path);
-        IKSP(ksp).exchangeKctPos(usdt, forB, tokenB, IKSLP(LP_B).estimatePos(usdt, forB).mul(9900).div(10000), path);
-        IKSP(ksp).exchangeKctPos(usdt, forC, tokenC, IKSLP(LP_C).estimatePos(usdt, forC).mul(9900).div(10000), path);
+        IKSP(usdt).exchangeKctPos(usdt, forA, tokenA, IKSLP(LP_A).estimatePos(usdt, forA).mul(9900).div(10000), path);
+        IKSP(usdt).exchangeKctPos(usdt, forB, tokenB, IKSLP(LP_B).estimatePos(usdt, forB).mul(9900).div(10000), path);
+        IKSP(usdt).exchangeKctPos(usdt, forC, tokenC, IKSLP(LP_C).estimatePos(usdt, forC).mul(9900).div(10000), path);
 
     }
 
@@ -263,4 +262,3 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
     }
 
 }
-//////////////////////////////////////////////////////////////
