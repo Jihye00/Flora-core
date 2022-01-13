@@ -45,6 +45,7 @@ contract BaseTrust is ITrust, Ownable, ReentrancyGuard {
     function _approveToken() internal {
         if(tokenA != address(0))
             IERC20(tokenA).approve(kslp, uint256(-1));
+            IERC20(tokenA).approve(ksp, uint256(-1));
         
         IERC20(tokenB).approve(kslp, uint256(-1));
         IERC20(ksp).approve(ksp, uint256(-1));
