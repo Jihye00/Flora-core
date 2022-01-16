@@ -9,107 +9,6 @@ import "./interfaces/ITreasury.sol";
 import "./utils/ContractGuard.sol";
 import "./utils/SafeMath.sol";
 import "./interfaces/IASSET.sol";
-contract Treasury is ITreasury, ContractGuard, Ownable{
-    using SafeERC20 for IERC20;
-    using SafeMath for uint256;
-    using Address for address;
-
-    bool public initialized;
-    IERC20 public aca;
-    uint256 private _totalSupply = 0;
-    uint256 public totalLending = 0;
-    mapping(address => uint256) public _balances;
-
-    uint256 public acaReward = 16800 ether;
-    uint256 public withdrawLockup = 7 days;
-    uint256 public updateInterval;
-    uint256 public additionalPercentage = 500; //5%
-    uint256 public IPA = 5; //0.05%
-    address public treasury;
-    address public acaToken;
-    /***************** STRUCTURE *****************/
-    struct BoardData {
-        uint256 LatestStaking;
-        uint256 rewardEarned;
-        uint256 additionalReward; //100 for 1%, 1000 for 10%
-        uint256 LatestRewardUpdate;
-        uint256 lendingAmount; //총 빌린 양
-        uint256 initLending; //Staking하면 lending amount가 0일때만 스테이킹하고 initLending 증가 가능
-        uint256 lendingStart;
-    }
-    mapping(address => BoardData) public users;
-
-    /***************** EVENTS *****************/
-    event Initialized(address indexed executor, uint256 time, uint256 at);
-    event Staked(address indexed user, uint256 amount);
-    event Withdrawn(address indexed user, uint256 amount);
-    event RewardPaid(address indexed user, uint256 reward);
-    event RewardAdded(address indexed user, uint256 reward);
-
-    /***************** MODIFIERS *****************/
-    modifier userExists {
-        require(balanceOf(msg.sender) > 0, "User not exists");
-        _;
-    }
-
-    modifier updateReward(address user) {
-        require(user != address(0), "Zero account");
-        address user_ = user;
-        BoardData memory data = users[user_];
-        data.rewardEarned = updateAddReward(user_).add(data.rewardEarned);
-        users[user_] = data;
-        _;
-    }
-
-    modifier updateInterest(address user) {
-        require (user != address(0), "Zero account");
-        address user_ = user;
-        uint256 lendingTime = block.timestamp - users[user_].lendingStart;
-        //Adjust below ratio
-        uint256 interest = lendingTime.mul(users[user_].lendingAmount).mul(IPA).div(10000).div (1 days);
-        users[user_].lendingAmount += interest;
-        _;
-    }
-
-    /***************** CONTRACTS *****************/
-    constructor() public {
-        withdrawLockup = 7 days;
-    }
-
-    function initialize(address _aca) public onlyOwner {
-        require (initialized == false, "Already initialized");
-        aca = IERC20(_aca);
-        acaToken = _aca;
-
-        initialized = true;
-
-        emit Initialized(msg.sender, block.timestamp, block.number);
-    }
-
-    function updateAcaciaReward(uint256 _acaReward) external onlyOwner {
-        require (_acaReward > 0 , "Zero aca reward");
-        acaReward = _acaReward;
-    }
-
-    function setLockUp(uint256 _withdrawLockup) external onlyOwner {
-        withdrawLockup = _withdrawLockup;
-    }
-
-    function setAdditionalReward(uint256 _additionalPercentage) external onlyOwner {
-        require (_additionalPercentage > 0, "Zero percentage");
-        additionalPercentage = _additionalPercentage;
-    }
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.6.0;
-
-import "./interfaces/IERC20.sol";
-import "./utils/SafeERC20.sol";
-import "./utils/Ownable.sol";
-import "./utils/Address.sol";
-import "./interfaces/ITreasury.sol";
-import "./utils/ContractGuard.sol";
-import "./utils/SafeMath.sol";
-import "./interfaces/IASSET.sol";
 
 contract Treasury is ITreasury, ContractGuard, Ownable{
     using SafeERC20 for IERC20;
@@ -188,8 +87,8 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         return users[user].LatestStaking.add(withdrawLockup) <= block.timestamp;
     }
 
-    function getLatestStaking(address user_) public view returns (uint256) {
-        return users[user_].LatestStaking;
+    function getLatestStaking() public view returns (uint256) {
+        return users[msg.sender].LatestStaking;
     }
 
     function update_RPS(address user_) public view returns (uint256) {
@@ -205,12 +104,16 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
         return _totalSupply;
     }
 
-    function balanceOf(address user_) public view returns (uint256) {
-        return _balances[user_];
+    function balanceOf(address account) public view returns (uint256) {
+        return _balances[account];
     }
 
-    function lending(address user_) public view returns (uint256, uint256) {
+    function lentAmount(address user_) public view returns (uint256, uint256) {
         return (users[user_].initLending, users[user_].lendingAmount); //Initial possible Amount, Lent amount
+    }
+
+    function extraProfit(address user_) public view returns (uint256) {
+        return users[user_].additionalReward;
     }
 
     /***************** MUTABLE FUNCTIONS *****************/
@@ -238,6 +141,7 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
 
     function claimReward_To_Wallet() virtual override public onlyOneBlock updateReward(msg.sender){
         require(users[msg.sender].rewardEarned > 0, "Cannot get 0 reward");
+        require (users[msg.sender].lendingAmount == 0, "Repay all lending amount");
         uint256 reward = users[msg.sender].rewardEarned;
         users[msg.sender].rewardEarned = 0;
         users[msg.sender].LatestStaking = block.timestamp;
@@ -272,7 +176,7 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
     }
 
     function giveUp() external virtual onlyOneBlock userExists {
-        aca.safeTransfer(BBfund, balanceOf(msg.sender));
+        aca.safeTransfer(BBfund, balanceOf(msg.sender)); //수정필요
         _balances[msg.sender] = 0;
         users[msg.sender].LatestStaking = 0;
         users[msg.sender].rewardEarned = 0;
