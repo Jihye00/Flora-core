@@ -52,7 +52,6 @@ contract poolTogether is BaseTrust, IPoolTogether{
         uint256 totalTicket;
     }
 
-
     mapping(address => Users) private user;
     mapping(uint256 => userOrder) private userOrders;
     mapping(uint256 => poolInfo) private pool;
@@ -183,12 +182,28 @@ contract poolTogether is BaseTrust, IPoolTogether{
         isDraw = true;
     }
 
-    function ticketCount() public view onlyOwner returns (uint256){
-        return pool[currentId].totalTicket - 1;
+    function ticketCount() public view returns (uint256){
+        return pool[currentId].totalTicket;
     }
 
-    function currentIdCount() public view onlyOwner returns (uint256) {
+    function currentIdCount() public view returns (uint256) {
         return currentId;
+    }
+
+    function ticketNumber() public view returns (uint256) {
+        return user[msg.sender].ticketNumber;
+    }
+
+    function depositedLP() public view returns (uint256) {
+        return user[msg.sender].depositLP;
+    }
+
+    function getStartTime(uint256 id) public view returns (uint256) {
+        return pool[id].poolStartTime;
+    }
+
+    function getTicketNumber(address user_) public view returns (uint256) {
+        return user[user_].ticketNumber;
     }
 
 

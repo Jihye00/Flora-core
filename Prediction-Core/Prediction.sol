@@ -86,6 +86,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
     mapping(uint256 => Round) public rounds;
     mapping(address => uint256[]) public userRounds;
     mapping(address => LeaderBoard) public userLeader;
+    //mapping(uint256 => userLeader) 
 
     event BetBear(address indexed sender, uint256 indexed epoch, uint256 amount);
     event BetBull(address indexed sender, uint256 indexed epoch, uint256 amount);
@@ -228,7 +229,7 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
         uint256 reward; // Initializes reward
         uint256 _seriesWin = 0;
         uint256 order = 0;
-        for (uint256 i = 0; i < epochs.length; i++) {
+        for (uint256 i = 0; i < epochs.length; i++) { 
             require(rounds[epochs[i]].startTimestamp != 0, "Round has not started");
             require(block.timestamp > rounds[epochs[i]].closeTimestamp, "Round has not ended");
 
@@ -735,6 +736,27 @@ contract Prediction is IPrediction, Ownable, Pausable, ReentrancyGuard{
      */
     function getUserRoundsLength(address user) external virtual view returns (uint256) {
         return userRounds[user].length;
+    }
+
+    function getCurrentEpoch() public view returns (uint256) {
+        return currentEpoch;
+    }
+
+    function getLockedPrice(uint256 epoch) public view returns (uint256) {
+        require (rounds[epoch].lockTimestamp < block.timestamp, "Not locked yet");
+        return rounds[epoch].lockPrice;
+    }
+
+    function getStartTime(uint256 epoch) public view returns (uint256) {
+        return rounds[epoch].startTimestamp;
+    }
+
+    function getPrevWin(uint256 epoch) public view returns (bool) {
+        if (rounds[epoch].closePrice < rounds[epoch].lockPrice) {
+            return true; //Down
+        } else {
+            return false; //Up
+        }
     }
 
 
