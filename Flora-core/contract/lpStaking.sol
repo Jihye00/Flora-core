@@ -23,7 +23,7 @@ contract Treasury is ILP, ReentrancyGuard, Ownable{
     uint256 private order = 0;
     mapping(address => uint256) public _balances;
 
-    uint256 public acaReward = 16800 ether;
+    uint256 public acaReward = 3729 ether;
     address public BBfund;
     address public acaToken;
 
@@ -36,7 +36,6 @@ contract Treasury is ILP, ReentrancyGuard, Ownable{
     struct BoardData {
         uint256 LatestStaking;
         uint256 rewardEarned;
-        uint256 rewardLP;
         uint256 LatestRewardUpdate;
         uint256 order;
         uint256 principal;
@@ -160,12 +159,18 @@ contract Treasury is ILP, ReentrancyGuard, Ownable{
         IKSLP(kslp).claimReward();
         address[] memory path = new address[](0);
         uint256 amountToSwap = IERC20(ksp).balanceOf(address(this)).div(2);
-        IKSP(ksp).exchangeKctPos(ksp, amountToSwap, tokenA, 1, path);
-        IKSP(ksp).exchangeKctPos(ksp, amountToSwap, tokenB, 1, path);
-
         uint256 before = IERC20(kslp).balanceOf(address(this));
-
-        IKSLP(kslp).addKctLiquidity(IERC20(tokenA).balanceOf(address(this)), IERC20(tokenB).balanceOf(address(this)));
+        
+        if (tokenA != address(0)) {
+            IKSP(ksp).exchangeKctPos(ksp, amountToSwap, tokenA, 1, path);
+            IKSP(ksp).exchangeKctPos(ksp, amountToSwap, tokenB, 1, path);
+            IKSLP(kslp).addKctLiquidity(IERC20(tokenA).balanceOf(address(this)), IERC20(tokenB).balanceOf(address(this)));
+        } else {
+            IKSP(ksp).exchangeKctPos(ksp, amountToSwap, tokenA, 1, path);
+            IKSP(ksp).exchangeKctPos(ksp, amountToSwap, tokenB, 1, path);
+            uint256 balanceKlay = (payable(address(this))).balance;
+            IKSLP(kslp).addKlayLiquidity{value: balanceKlay}(IERC20(tokenB).balanceOf(address(this)));
+        }
 
         distReward(IERC20(kslp).balanceOf(address(this)).sub(before));
     }

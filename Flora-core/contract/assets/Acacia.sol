@@ -9,13 +9,14 @@ import "../utils/ERC20.sol";
 contract Acacia is ERC20Burnable, Ownable {
     using SafeMath for uint256;
 
-    uint256 public constant TOTAL_SUPPLY = 330000000 ether;
-    uint256 public constant POOL_REWARD_ALLOCATION = 144540000 ether;
-    uint256 public constant AIRDROP_ALLOCATION = 151110000 ether;
-    uint256 public constant INITIAL_SETTING = 1005001 ether; // 1 for staking initializing
-    uint256 public constant DEV_FUND_POOL_ALLOCATION = 33344999 ether;
+    uint256 public constant TOTAL_SUPPLY = 110000000 ether;
+    uint256 public constant POOL_REWARD_ALLOCATION = 36300000 ether;
+    uint256 public constant AIRDROP_ALLOCATION = 42350000 ether;
+    uint256 public constant INITIAL_SETTING = 1660000 ether; 
+    uint256 public constant DEV_FUND_POOL_ALLOCATION = 24300000 ether; //Include marketing
+    uint256 public constant For_Investors = 6050000 ether;
 
-    uint256 public constant DURATION = 1095 days;
+    uint256 public constant DURATION = 1825 days;
     uint256 public startTime = 1; // Need to be fixed
     uint256 public endTime = startTime + DURATION;
 

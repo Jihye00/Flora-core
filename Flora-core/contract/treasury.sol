@@ -20,7 +20,7 @@ contract Treasury is ITreasury, ContractGuard, Ownable{
     uint256 public totalLending = 0;
     mapping(address => uint256) public _balances;
 
-    uint256 public acaReward = 16800 ether;
+    uint256 public acaReward = 58013 ether;
     uint256 public withdrawLockup = 7 days;
     uint256 public additionalPercentage = 500; //5%
     address public BBfund;
