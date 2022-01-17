@@ -26,6 +26,7 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
     uint256 public totalAmount;
     uint256 public rebalanceInterval;
     uint256 public additionalProfit;
+    uint256 private order = 0;
 
     address LP_A; //KSP + usdt
     address LP_B; //ETH + usdt
@@ -45,9 +46,11 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
     struct userInfo {
         uint256 amount;
         uint256 depositTime;
+        uint256 order;
     }
 
     mapping(address => userInfo) users;
+    mapping(uint256 => address) userOrder;
 
     constructor(
         address _usdt, 
@@ -101,7 +104,7 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
         require (_amount > 0, "Cannot deposit 0");
 
         uint256 before = IERC20(usdt).balanceOf(address(this));
-        
+
         IERC20(usdt).transferFrom(msg.sender, address(this), _amount);
 
         uint256 forA = _amount.mul(distributionA).div(20000); //KSP + USDT
@@ -114,7 +117,13 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
 
         _swap(forA, forB, forC);
 
-        _addliquidity(forA, forB, forC, IERC20(tokenA).balanceOf(address(this)) - beforeA, IERC20(tokenB).balanceOf(address(this)) - beforeB, IERC20(tokenC).balanceOf(address(this)) - beforeC);
+        _addliquidity(forA, forB, forC, IERC20(tokenA).balanceOf(address(this)) - beforeA, IERC20(tokenB).balanceOf(address(this)) - beforeB, IERC20(tokenC).balanceOf(address(this)) - beforeC);   
+
+        if (users[msg.sender].depositTime == 0) {
+            users[msg.sender].order = order;
+            userOrder[order] = msg.sender;
+            order += 1;
+        }
 
         users[msg.sender].depositTime = block.timestamp;
         uint256 _after = IERC20(usdt).balanceOf(address(this)); 
@@ -131,7 +140,7 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
         }
     }
 
-    function deposit_rebalance(uint256 _amount, uint256 before) internal {
+    function deposit_rebalance(uint256 _amount) internal {
 
         uint256 forA = _amount.mul(distributionA).div(20000);
         uint256 forB = _amount.mul(distributionB).div(20000);
@@ -144,10 +153,6 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
         _swap(forA, forB, forC);
 
         _addliquidity(forA, forB, forC, IERC20(tokenA).balanceOf(address(this)) - beforeA, IERC20(tokenB).balanceOf(address(this)) - beforeB, IERC20(tokenC).balanceOf(address(this)) - beforeC);
-
-        uint256 _after = IERC20(usdt).balanceOf(address(this));
-
-        additionalProfit += (before - _after);
     }
 
     function withdraw(uint256 _amount) external virtual override nonReentrant {
@@ -155,17 +160,17 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
         require (users[msg.sender].amount >= _amount, "More than you have");
 
         uint256 before_usdt = IERC20(usdt).balanceOf(address(this));
-
+        
         (uint256 beforeA, ) = IKSLP(LP_A).getCurrentPool();
-        _removeLiquidity(LP_A, IERC20(LP_A).balanceOf(address(this)).mul(users[msg.sender].amount).div(totalAmount));
+        _removeLiquidity(LP_A, IERC20(LP_A).balanceOf(address(this)).mul(_amount).div(totalAmount));
         (uint256 afterA, ) = IKSLP(LP_A).getCurrentPool();
 
         (uint256 beforeB, ) = IKSLP(LP_B).getCurrentPool();
-        _removeLiquidity(LP_B, IERC20(LP_B).balanceOf(address(this)).mul(users[msg.sender].amount).div(totalAmount));
+        _removeLiquidity(LP_B, IERC20(LP_B).balanceOf(address(this)).mul(_amount).div(totalAmount));
         (uint256 afterB, ) = IKSLP(LP_B).getCurrentPool();
 
         (uint256 beforeC, ) = IKSLP(LP_C).getCurrentPool();
-        _removeLiquidity(LP_C, IERC20(LP_C).balanceOf(address(this)).mul(users[msg.sender].amount).div(totalAmount));
+        _removeLiquidity(LP_C, IERC20(LP_C).balanceOf(address(this)).mul(_amount).div(totalAmount));
         (uint256 afterC, ) = IKSLP(LP_C).getCurrentPool();
 
         uint256 after_usdt = IERC20(usdt).balanceOf(address(this));
@@ -193,29 +198,28 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
         uint256 before = IERC20(usdt).balanceOf(address(this));
         swap_from_ksp(usdt);
         swap_from_aca(tokenC, IERC20(tokenC).balanceOf(address(this)));
-        
-        deposit_rebalance(IERC20(usdt).balanceOf(address(this)), before);
+        additionalProfit += (before - IERC20(usdt).balanceOf(address(this)));
+
+        distReward(before - IERC20(usdt).balanceOf(address(this)));
+
+        deposit_rebalance(IERC20(usdt).balanceOf(address(this)));
+    }
+
+    function distReward(uint256 profit) internal {
+        for (uint256 i = 0; i < order; i ++){
+            if (users[userOrder[i]].amount != 0){
+                users[userOrder[i]].amount += profit.mul(users[userOrder[i]].amount).div(totalAmount);
+            }
+        }
     }
 
     function swap_from_ksp(address token) internal {
         address[] memory path;
         uint256 kspAmount = IERC20(ksp).balanceOf(msg.sender);
-
-        if(_kspTokenPoolExist(token)){
-            path = new address[](0);
-            address kspTokenPool = IKSP(ksp).tokenToPool(ksp, token);
-            uint256 least = IKSLP(kspTokenPool).estimatePos(ksp, kspAmount).mul(9900).div(10000);
-            IKSP(ksp).exchangeKctPos(ksp, kspAmount, token, least, path);
-        } else {
-            path = new address[](1);
-            path[0] = address(0);
-            address klayTokenPool = IKSP(ksp).tokenToPool(address(0), token);
-
-            uint256 estimatedKlay = IKSLP(klaykspPool).estimatePos(ksp, kspAmount);
-            uint256 estimatedToken = IKSLP(klayTokenPool).estimatePos(address(0), estimatedKlay);
-            uint256 least = estimatedToken.mul(9900).div(10000);
-            IKSP(ksp).exchangeKctPos(ksp, kspAmount, token, least, path);
-        }
+        path = new address[](0);
+        address kspTokenPool = IKSP(ksp).tokenToPool(ksp, token);
+        uint256 least = IKSLP(kspTokenPool).estimatePos(ksp, kspAmount).mul(9900).div(10000);
+        IKSP(ksp).exchangeKctPos(ksp, kspAmount, token, least, path);
     }
 
     function swap_from_aca(address token, uint256 amount) internal {
@@ -258,7 +262,7 @@ contract ETF is IETF, Ownable, ReentrancyGuard {
     }
 
     function userProfit() external override view returns (uint256) {
-        return additionalProfit.mul(users[msg.sender].amount).div(totalAmount);
+        return additionalProfit;
     }
 
 }
