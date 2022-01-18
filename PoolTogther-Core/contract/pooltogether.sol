@@ -190,12 +190,12 @@ contract poolTogether is BaseTrust, IPoolTogether{
         return currentId;
     }
 
-    function ticketNumber() public view returns (uint256) {
-        return user[msg.sender].ticketNumber;
+    function ticketNumber(address user) public view returns (uint256) {
+        return user[user].ticketNumber;
     }
 
-    function depositedLP() public view returns (uint256) {
-        return user[msg.sender].depositLP;
+    function depositedLP(address user) public view returns (uint256) {
+        return user[address user].depositLP;
     }
 
     function getStartTime(uint256 id) public view returns (uint256) {
